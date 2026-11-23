@@ -1,0 +1,58 @@
+%
+(Test plate rev A)
+(Onefinity CAM - MASSO post - golden)
+(Machine: Onefinity Woodworker X-35)
+(Work offset: G54, X0 Y0 front-left of stock, Z0 top of stock)
+(T1: 1/4" flat end mill - 0.25 in flat end mill, 2 fl)
+(T4: 60° V-bit - 60° V-bit, 2 fl)
+G90 G94 G17 G20 G40 G49 G80
+G54
+G53 G0 Z0
+(Profile on line - T1 1/4" flat end mill)
+T1 M6
+G43 H1
+M3 S18000
+G0 X0.1969 Y0
+Z0.1969
+Z0.0394
+G1 Z-0.1181 F19.69
+X1.7717 F59.06
+G3 X1.9685 Y0.1969 I0 J0.1969
+G1 Y0.9843
+G3 X1.7717 Y1.1811 I-0.1969 J0
+G1 X0.1969
+G3 X0 Y0.9843 I0 J-0.1969
+G1 Y0.1969
+G3 X0.1969 Y0 I0.1969 J0
+G1 Z-0.2362 F19.69
+X1.7717 F59.06
+G3 X1.9685 Y0.1969 I0 J0.1969
+G1 Y0.9843
+G3 X1.7717 Y1.1811 I-0.1969 J0
+G1 X0.1969
+G3 X0 Y0.9843 I0 J-0.1969
+G1 Y0.1969
+G3 X0.1969 Y0 I0.1969 J0
+G0 Z0.1969
+(Second profile same tool)
+S16000
+X0.3937 Y0.3937
+G1 Z-0.0394 F19.69
+X0.7874 F59.06
+G0 Z0.1969
+G53 G0 Z0
+M5
+(V line - T4 60° V-bit)
+T4 M6
+G43 H4
+M3 S18000
+G0 X0.3937 Y0.5906
+Z0.1969
+G1 Z-0.0787 F15.75
+X1.5748 F47.24
+G4 P0.5
+G0 Z0.1969
+G53 G0 Z0
+M5
+M30
+%
