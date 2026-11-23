@@ -98,12 +98,12 @@ export class Preview3D {
     this.request();
   }
 
-  /** toolpaths; `active` = index of the operation to show bright (others dimmed), -1 = all */
-  setPaths(paths: PreviewPath[], active: number, showRapids: boolean) {
+  /** toolpaths; `active[i]` = show path i bright (the rest dimmed); null = all bright */
+  setPaths(paths: PreviewPath[], active: boolean[] | null, showRapids: boolean) {
     this.clear(this.pathGroup);
     const colors: Record<number, [number, number, number]> = { [SEG_CUT]: [0.18, 0.5, 0.93], [SEG_PLUNGE]: [0.61, 0.32, 0.88], [SEG_RAPID]: [0.95, 0.55, 0.2] };
     paths.forEach((p, i) => {
-      const dim = active >= 0 && i !== active;
+      const dim = active !== null && !active[i];
       const n = p.kind.length;
       let keep = 0;
       for (let k = 0; k < n; k++) if (showRapids || p.kind[k] !== SEG_RAPID) keep++;

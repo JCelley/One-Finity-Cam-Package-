@@ -115,3 +115,13 @@ export function offsetShapes(shapes: Shape[], delta: number, tol = 0.01, corners
 export function regionArea(shapes: Shape[], tol = 0.01): number {
   return unionD(toPaths(shapes, tol), [], FillRule.EvenOdd, PREC).reduce((s, p) => s + signedArea(p), 0);
 }
+
+/**
+ * Closed shapes as a clean region (even-odd: nested outlines are holes): outer loops
+ * counter-clockwise, holes clockwise, so the material is always on the left of each loop.
+ */
+export function regionLoops(shapes: Shape[], tol = 0.01): Pt[][] {
+  return unionD(toPaths(shapes, tol), [], FillRule.EvenOdd, PREC)
+    .filter((p) => p.length >= 3)
+    .map((p) => p.map((q) => ({ x: q.x, y: q.y })));
+}

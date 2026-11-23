@@ -27,7 +27,14 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `profile.ts` (outside/inside/on, climb/conventional, ramp, tabs, allowance), `pocket.ts`
     (offset rings inner→outer or raster + wall pass, islands, links kept at depth when short and
     inside), `drill.ts` (pecks as plain G0/G1, no canned cycles)
-  - vcarve, inlay, raster3d: still to write
+  - `vcarve.ts`: V-carving by largest inscribed circles: walk each boundary loop (material on the
+    left), at each point find the biggest circle touching there that fits; its centre is the tip
+    position, its radius the depth. Reflex corners are swept with a fan of normals; samples are
+    bisected where the tip jumps. Depth cap → `flat` loops for a clearing tool.
+  - `inlay.ts`: V-carve op, and inlay pocket / plug (mirrored, walls start at pocket depth − glue
+    gap, cut down by `proud` more, inside a margin frame). With a clearing tool `buildJob` makes a
+    second toolpath (`<id>:clear`, the end mill's own recommended feeds) before the V-bit's.
+  - raster3d: still to write
 - `src/cam/build.ts`: `buildJob` (job + drawing + library → moves, warnings, `moveStats` times)
   and `jobGcode` (→ `postMasso`). `opParams` merges saved params over `OP_DEFAULTS`.
 - `src/cam/preview.ts`: moves → line segments for the 3D view
@@ -87,7 +94,7 @@ post change before cutting stock.
 3. Profile / pocket / drill + 3D toolpath preview + time estimate (done, first pass). Not yet:
    lead-in/out, arc fitting (toolpaths are short G1 segments), helical entry, rest machining.
    Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
-4. V-carve and inlay
+4. V-carve and inlay (done, first pass; no text tool yet, so letters come in as DXF/SVG outlines)
 5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work

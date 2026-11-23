@@ -42,6 +42,8 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       <button data-a="add" data-kind="profile" title="Cut along or around the selected outlines">Profile</button>
       <button data-a="add" data-kind="pocket" title="Clear the area inside the selected closed outlines">Pocket</button>
       <button data-a="add" data-kind="drill" title="Drill at the centre of the selected circles">Drill</button>
+      <button data-a="add" data-kind="vcarve" title="V-carve inside the selected closed outlines (letters, shapes)">V-carve</button>
+      <button data-a="add" data-kind="inlay" title="V-carved inlay: a pocket in one board and a mirrored plug for another">Inlay</button>
     </div>
     <ol data-el="list" class="oplist"></ol>
     <div data-el="edit" class="opedit"></div>
@@ -109,13 +111,25 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     }, 250);
   };
 
+  /** everything the toolpaths of one job operation add up to */
+  const resOf = (opId: string) => {
+    const rs = results.filter((r) => r.opId === opId);
+    if (!rs.length) return null;
+    return {
+      seconds: rs.reduce((t, r) => t + r.stats.seconds, 0),
+      cutLength: rs.reduce((t, r) => t + r.stats.cutLength, 0),
+      moveCount: rs.reduce((t, r) => t + r.moveCount, 0),
+      warnings: rs.flatMap((r) => r.warnings),
+      parts: rs,
+    };
+  };
+
   const drawScene = () => {
     const j = job();
     const op = j.ops.find((o) => o.id === selected);
     const hl = new Set(op ? opParams(op as JobOp & { kind: OpKind }).geometry : []);
     view.setScene(j.stock, j.zZero === 'top' ? 0 : j.stock.z, editor.doc, hl);
-    const idx = results.findIndex((r) => r.id === selected);
-    view.setPaths(results.map((r) => r.preview), idx, showRapids);
+    view.setPaths(results.map((r) => r.preview), selected ? results.map((r) => r.opId === selected) : null, showRapids);
   };
 
   // ---- rendering ----------------------------------------------------------------------------------
@@ -131,9 +145,9 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     for (const r of results) for (const w of r.warnings) warn.push(`<b>${esc(r.name)}:</b> ${esc(w)}`);
     el('warn').innerHTML = warn.map((w) => `<div>⚠ ${w}</div>`).join('');
     // times next to each op in the list
-    for (const r of results) {
-      const t = root.querySelector(`[data-time="${r.id}"]`);
-      if (t) t.textContent = fmtTime(r.stats.seconds);
+    for (const o of j.ops) {
+      const t = root.querySelector(`[data-time="${o.id}"]`), r = resOf(o.id);
+      if (t) t.textContent = r ? fmtTime(r.seconds) : '';
     }
   };
 
@@ -143,12 +157,12 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     el('list').innerHTML = j.ops
       .map((o, i) => {
         const t = toolOf(o.toolNumber);
-        const r = results.find((x) => x.id === o.id);
+        const r = resOf(o.id);
         return `<li data-id="${o.id}" class="${o.id === selected ? 'sel' : ''}${o.enabled ? '' : ' off'}">
   <input type="checkbox" data-a="enable" ${o.enabled ? 'checked' : ''} title="Include in the G-code">
   <span class="name">${esc(o.name)}</span>
   <span class="tool">${t ? `T${t.number}` : `T${o.toolNumber}?`}</span>
-  <span class="time" data-time="${o.id}">${r ? fmtTime(r.stats.seconds) : ''}</span>
+  <span class="time" data-time="${o.id}">${r ? fmtTime(r.seconds) : ''}</span>
   ${r?.warnings.length ? '<span class="w" title="Has warnings">⚠</span>' : ''}
   <span class="btns"><button data-a="up" ${i === 0 ? 'disabled' : ''} title="Earlier">↑</button><button data-a="down" ${i === j.ops.length - 1 ? 'disabled' : ''} title="Later">↓</button><button data-a="del" title="Delete">✕</button></span>
 </li>`;
@@ -191,14 +205,28 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
   <div class="row3">${select('strategy', 'Pattern', p.strategy as string, [['offset', 'Offset (rings)'], ['raster', 'Raster (zig-zag)']])}${field('angle', 'Angle °', String(p.angle), 'Raster line direction', 4)}${field('stepover', 'Stepover %', String(Math.round((p.stepover as number) * 100)), '% of the tool diameter', 4)}</div>
   <div class="row3">${len('depth', 'Depth')}${len('stepdown', 'Stepdown')}${len('allowance', 'Leave', 'Material left on walls and floor')}</div>
   <div class="row3">${select('climb', 'Direction', String(p.climb), [['true', 'Climb'], ['false', 'Conventional']])}${field('ramp', 'Ramp °', String(p.ramp), '', 4)}${len('top', 'Start depth')}</div>`;
+    } else if (kind === 'vcarve' || kind === 'inlay') {
+      const clearOpts: [string, string][] = [['0', 'None'], ...library.filter((t) => t.cutter.type === 'flat').map((t) => [String(t.number), `T${t.number} ${t.name}`] as [string, string])];
+      if (kind === 'inlay') {
+        h += `
+  ${select('side', 'Part', p.side as string, [['pocket', 'Pocket (in the base board)'], ['plug', 'Plug (mirrored, in the inlay board)']])}
+  <div class="row3">${len('pocketDepth', 'Pocket depth', 'Depth of the flat bottom of the pocket')}${len('gap', 'Glue gap', 'Space left under the plug for glue')}${len('proud', 'Plug stands', 'How far the plug stands above the base board after gluing (plane it off)')}</div>
+  <div class="row3">${len('margin', 'Plug margin', 'Waste cleared round the plug')}${len('stepdown', 'Stepdown', 'Deepest V-bit cut per pass; 0 = one pass')}</div>`;
+      } else {
+        h += `
+  <div class="row3">${len('maxDepth', 'Max depth', 'Wider areas are left flat at this depth')}${len('stepdown', 'Stepdown', 'Deepest V-bit cut per pass; 0 = one pass')}</div>`;
+      }
+      h += `
+  <div class="row3">${select('clearTool', 'Clear flats with', String(p.clearTool), clearOpts)}${field('clearStepover', 'Stepover %', String(Math.round((p.clearStepover as number) * 100)), 'Clearing stepover, % of that tool', 4)}</div>`;
     } else {
       h += `
   <div class="row3">${len('depth', 'Depth')}${len('peck', 'Peck', '0 = all the way in one go')}${field('dwell', 'Dwell s', String(p.dwell), 'Pause at the bottom', 4)}</div>
   ${len('top', 'Start depth')}`;
     }
     h += '</div>';
-    const r = results.find((x) => x.id === op.id);
-    if (r) h += `<p class="hint">${r.moveCount.toLocaleString()} moves · ${(r.stats.cutLength / (u() === 'in' ? 25.4 : 1000)).toFixed(u() === 'in' ? 0 : 1)} ${u() === 'in' ? 'in' : 'm'} of cutting · about ${fmtTime(r.stats.seconds)}</p>`;
+    const r = resOf(op.id);
+    if (r) h += `<p class="hint">${r.moveCount.toLocaleString()} moves · ${(r.cutLength / (u() === 'in' ? 25.4 : 1000)).toFixed(u() === 'in' ? 0 : 1)} ${u() === 'in' ? 'in' : 'm'} of cutting · about ${fmtTime(r.seconds)}${r.parts.length > 1 ? ` (${r.parts.map((x) => `${x.tool ? `T${x.tool.number}` : ''} ${fmtTime(x.stats.seconds)}`).join(' + ')})` : ''}</p>`;
+    h += `<div class="row"><button data-a="gcode1" title="A G-code file with only this operation (e.g. an inlay plug for its own board)">Save this operation…</button></div>`;
     el('edit').innerHTML = h;
   };
 
@@ -217,12 +245,16 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
 
   const defaults = (kind: OpKind): JobOp => {
     const j = job();
-    const tool = library.find((t) => t.cutter.type === 'flat') ?? library[0];
+    const carve = kind === 'vcarve' || kind === 'inlay';
+    const tool = (carve ? library.find((t) => t.cutter.type === 'vbit') : null) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
     const rec = feedsFor(tool, j.material as Material, 'rough', machineById(j.machineId).spindle);
     const params: Record<string, unknown> = { ...structuredClone(OP_DEFAULTS[kind]), geometry: editor.selectedIds() };
     if (kind === 'profile' || kind === 'drill') params.depth = Math.round((j.stock.z + 0.5) * 100) / 100;
     if (kind === 'pocket') params.depth = Math.min(6, Math.round((j.stock.z / 3) * 100) / 100);
-    if (kind !== 'drill') {
+    if (carve) {
+      params.clearTool = library.find((t) => t.cutter.type === 'flat')?.number ?? 0;
+      if (kind === 'inlay') params.pocketDepth = Math.min(5, Math.round((j.stock.z / 3) * 100) / 100);
+    } else if (kind !== 'drill') {
       params.stepdown = rec.stepdown;
       if (kind === 'pocket') params.stepover = Math.round((rec.stepover / tool.cutter.diameter) * 100) / 100;
     } else params.peck = Math.max(1, Math.round(tool.cutter.diameter * 100) / 100);
@@ -286,12 +318,13 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       op.rpm = rec.rpm;
       op.feed = rec.feed;
       op.plunge = rec.plunge;
-      if (op.kind !== 'drill') op.params.stepdown = rec.stepdown;
+      if (op.kind === 'profile' || op.kind === 'pocket') op.params.stepdown = rec.stepdown;
       if (op.kind === 'pocket') op.params.stepover = Math.round((rec.stepover / t.cutter.diameter) * 100) / 100;
       if (op.kind === 'drill') op.params.peck = Math.max(1, Math.round(t.cutter.diameter * 100) / 100);
       update();
     } else if (a === 'view') view.view(b.dataset.dir as 'top');
     else if (a === 'gcode') await saveGcode();
+    else if (a === 'gcode1' && op) await saveGcode([op.id]);
   });
 
   root.addEventListener('change', (e) => {
@@ -309,7 +342,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     const op = j.ops.find((o) => o.id === selected);
     if (!k || !op) return;
     const P = op.params as Record<string, unknown>;
-    const lenKeys = ['depth', 'stepdown', 'allowance', 'top', 'peck', 'tabs.width', 'tabs.height'];
+    const lenKeys = ['depth', 'stepdown', 'allowance', 'top', 'peck', 'tabs.width', 'tabs.height', 'maxDepth', 'pocketDepth', 'gap', 'proud', 'margin'];
     let ok = true;
     if (k === 'name') op.name = t.value.trim() || op.name;
     else if (k === 'tool') op.toolNumber = Number(t.value);
@@ -329,6 +362,11 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     } else if (k === 'tabs.count') {
       const v = parseInt(t.value, 10);
       if (v >= 0) P.tabs = { ...opParams(op as JobOp & { kind: 'profile' }).tabs, count: v };
+      else ok = false;
+    } else if (k === 'clearTool') P.clearTool = Number(t.value);
+    else if (k === 'clearStepover') {
+      const v = parseFloat(t.value);
+      if (v >= 5 && v <= 95) P.clearStepover = v / 100;
       else ok = false;
     } else if (k === 'stepover') {
       const v = parseFloat(t.value);
@@ -350,11 +388,11 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     update();
   });
 
-  async function saveGcode() {
+  async function saveGcode(only?: string[]) {
     const j = job();
     try {
       await loadLibrary();
-      const g = jobGcode(j, buildJob(j, readDoc(structuredClone(editor.doc)), library));
+      const g = jobGcode(j, buildJob(j, readDoc(structuredClone(editor.doc)), library), undefined, only);
       const h = await saveTextFile('gcode', g.fileName, g.text);
       if (h !== null) msg = `Saved ${g.lines.toLocaleString()} lines${h ? ` to ${h.name}` : ''}${g.warnings.length ? `. Warnings: ${g.warnings.join('; ')}` : ''}. Air-cut a new setup before cutting stock.`;
     } catch (err) {
