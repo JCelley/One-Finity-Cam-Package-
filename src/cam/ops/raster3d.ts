@@ -1,20 +1,21 @@
-import type { Cutter } from '../../core/cutter';
-import { floorSkip, finishingRuns, roughingPaths, roughRest, topSkip, type Path, type PathSet } from '../../core/heightfieldCam';
+import { simulateCut, type Cutter } from '../../core/cutter';
+import { detailPaths, detailRegion, floorSkip, toolRadiusAt, finishingRuns, roughingPaths, roughRest, topSkip, type Path, type PathSet } from '../../core/heightfieldCam';
 import { modelGrid, placeModel, type Model3D, type ModelGrid } from '../model3d';
 import type { Move } from '../toolpath';
-import type { Ctx } from './contour';
+import { fmtMm, type Ctx } from './contour';
 
 export interface Raster3dParams {
   /** id of the model in the job */
   model: string;
-  pass: 'rough' | 'finish';
+  /** rest: a smaller tool, only where the finishing tools before it on this model could not reach */
+  pass: 'rough' | 'finish' | 'rest';
   /** roughing: deepest cut per level (mm) */
   stepdown: number;
   /** distance between raster lines (mm) */
   stepover: number;
   /** roughing: material left on the surface for the finishing pass (mm) */
   allowance: number;
-  /** finishing: lines along X, along Y, or both */
+  /** finishing / rest: lines along X, along Y, or both */
   dir: 'x' | 'y' | 'xy';
   /** ramp angle into each cut (degrees, 0 = plunge) */
   ramp: number;
@@ -67,16 +68,57 @@ export function gridPoints(m: Model3D): number {
  * 3D raster machining of a placed model. Roughing: Z levels from the stock top down, lines along
  * X, `allowance` left on the surface (a flat end mill cuts the model's bottom to depth). Finishing:
  * the tool rides on the surface along X / Y / both; with roughing before it, it skips floor that
- * is already done and hops just over the material between runs.
+ * is already done and hops just over the material between runs. Rest: lines only where the tools
+ * of the finishing (and rest) passes before it (`finished`) leave material this smaller tool can
+ * take off, grown by its width so it gets into each corner from all sides.
  */
-export function raster3dOp(model: Model3D, tool: Cutter, p: Raster3dParams, ctx: Ctx, rough?: RoughBefore): Raster3dResult {
+export function raster3dOp(model: Model3D, tool: Cutter, p: Raster3dParams, ctx: Ctx, rough?: RoughBefore, finished: Cutter[] = []): Raster3dResult {
   const warnings: string[] = [];
   if (gridPoints(model) > MAX_GRID) return { moves: [], warnings: [`The model's area is too big for a ${model.res} mm resolution: make the resolution coarser`], depth: 0, bottom: 0 };
   const mg = gridOf(model);
   const { g, stockTop } = mg;
   const step = Math.max(0.02, p.stepover);
   let ps: PathSet;
-  if (p.pass === 'rough') {
+  if (p.pass === 'rest') {
+    if (!finished.length) return { moves: [], warnings: ['Rest machining goes after a 3D finish on the same model: add one above it'], depth: 0, bottom: stockTop };
+    // the surface the earlier tools leave: each takes the material down to its own reach
+    let left: Float32Array | null = null;
+    for (const t of finished) {
+      const c = simulateCut(g, t).cut;
+      if (!left) left = c;
+      else for (let k = 0; k < c.length; k++) left[k] = Math.min(left[k], c[k]);
+    }
+    const finishCut = left!;
+    const first = detailRegion(g, tool, finishCut);
+    if (first.area <= 0) return { moves: [], warnings: ['Nothing left for this tool: the finishing before it already reaches everywhere this tool can'], depth: 0, bottom: stockTop };
+    let most = 0;
+    for (let k = 0; k < first.cut.length; k++) if (first.region[k]) most = Math.max(most, finishCut[k] - first.cut[k]);
+    // in levels no deeper than the stepdown below what the earlier tools left: level k cuts the
+    // surface max(design, left − k·stepdown), and only where the level above left material
+    const sd = p.stepdown > 0 ? Math.max(0.05, p.stepdown) : Infinity;
+    const levels = Number.isFinite(sd) ? Math.max(1, Math.ceil(most / sd - 1e-6)) : 1;
+    ps = { paths: [], entry: [], link: [] };
+    let prev = finishCut;
+    for (let lv = 1; lv <= levels; lv++) {
+      const zk = lv === levels ? g.z : g.z.map((v, k) => Math.max(v, finishCut[k] - lv * sd));
+      const gk = { ...g, z: zk };
+      const { region, area } = lv === 1 && levels === 1 ? first : detailRegion(gk, tool, prev);
+      if (area > 0) {
+        // only the last level is the finished surface: the ones above it clear at a roughing stepover
+        // (40% of the tool's width a stepdown up from its tip)
+        const so = lv === levels ? step : Math.max(step, 0.8 * toolRadiusAt(tool, sd));
+        const lp = detailPaths(gk, { tool, stepover: so, dir: p.dir, finishCut: prev, region });
+        // the first run of a level starts from the safe height
+        if (lp.link?.length) lp.link[0] = NaN;
+        ps.paths.push(...lp.paths);
+        ps.entry.push(...lp.entry);
+        ps.link!.push(...lp.link!);
+      }
+      prev = lv === levels ? first.cut : simulateCut(gk, tool).cut;
+    }
+    if (!Number.isFinite(sd) && most > tool.diameter + 1e-6)
+      warnings.push(`It takes up to ${(ctx.fmt ?? fmtMm)(most)} in one pass in the deepest corners, more than the tool's diameter: set a stepdown`);
+  } else if (p.pass === 'rough') {
     ps = roughingPaths(g, { tool, stepdown: Math.max(0.05, p.stepdown), stepover: step, allowance: Math.max(0, p.allowance), stockTop });
   } else {
     const skip = new Uint8Array(g.nx * g.ny);

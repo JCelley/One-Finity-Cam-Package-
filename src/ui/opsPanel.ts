@@ -55,6 +55,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       <button data-a="stl" title="Load a 3D model (binary or ASCII STL) and add a roughing pass for it">Import STL…</button>
       <button data-a="add3d" data-pass="rough" title="Another roughing pass for the selected 3D operation's model">3D rough</button>
       <button data-a="add3d" data-pass="finish" title="A finishing pass for the selected 3D operation's model">3D finish</button>
+      <button data-a="add3d" data-pass="rest" title="Rest machining: a smaller tool, only where the finishing tool couldn't reach (goes after a 3D finish)">3D rest</button>
     </div>
     <ol data-el="list" class="oplist"></ol>
     <div data-el="edit" class="opedit"></div>
@@ -256,7 +257,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       const t = toolOf(op.toolNumber);
       const models: [string, string][] = j.models.map((q) => [q.id, q.name]);
       h += `
-  <div class="row3">${select('model', 'Model', (p.model as string) || '', models.length ? models : [['', '(none: import an STL)']])}${select('pass', 'Pass', p.pass as string, [['rough', 'Roughing (Z levels)'], ['finish', 'Finishing (raster)']])}</div>`;
+  <div class="row3">${select('model', 'Model', (p.model as string) || '', models.length ? models : [['', '(none: import an STL)']])}${select('pass', 'Pass', p.pass as string, [['rough', 'Roughing (Z levels)'], ['finish', 'Finishing (raster)'], ['rest', 'Rest (smaller tool)']])}</div>`;
       if (p.pass === 'rough')
         h += `
   <div class="row3">${len('stepdown', 'Stepdown', 'Deepest cut per Z level')}${field('step3d', 'Stepover', L(p.stepover as number), 'Distance between the lines')}${len('allowance', 'Leave', 'Material left on the surface for finishing')}</div>
@@ -264,8 +265,11 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       else {
         const sc = t ? scallopHeight(t.cutter, p.stepover as number) : 0;
         h += `
-  <div class="row3">${field('step3d', 'Stepover', L(p.stepover as number), 'Distance between the lines')}${select('dir', 'Lines', p.dir as string, [['x', 'Along X'], ['y', 'Along Y'], ['xy', 'X then Y']])}${field('ramp', 'Ramp °', String(p.ramp), '0 = plunge straight down', 4)}</div>
-  ${t ? `<p class="hint">Ridges between the lines about ${L(sc)} high on flat areas.${t.cutter.type === 'flat' ? ' A flat end mill leaves steps on curves: a ball end mill finishes them smoothly.' : ''}</p>` : ''}`;
+  <div class="row3">${field('step3d', 'Stepover', L(p.stepover as number), 'Distance between the lines')}${select('dir', 'Lines', p.dir as string, [['x', 'Along X'], ['y', 'Along Y'], ['xy', 'X then Y']])}${field('ramp', 'Ramp °', String(p.ramp), '0 = plunge straight down', 4)}</div>${p.pass === 'rest' ? `
+  <div class="row3">${len('stepdown', 'Stepdown', 'Deepest cut per level, below what the finishing left; 0 = one pass')}</div>` : ''}
+  ${t ? `<p class="hint">Ridges between the lines about ${L(sc)} high on flat areas.${t.cutter.type === 'flat' ? ' A flat end mill leaves steps on curves: a ball end mill finishes them smoothly.' : ''}</p>` : ''}${
+          p.pass === 'rest' ? `<p class="hint">Cuts only where the finishing passes above it on this model leave material this tool can reach: corners, narrow grooves, fine detail. Use a smaller tool than theirs.</p>` : ''
+        }`;
       }
       if (m) {
         const sz = modelSize(m, rawOf(m));
@@ -344,11 +348,18 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     return { id: newId(), kind, name: `${OP_LABEL[kind]} ${n}`, toolNumber: tool.number, rpm: rec.rpm, feed: rec.feed, plunge: rec.plunge, enabled: true, params };
   };
 
-  const defaults3d = (pass: 'rough' | 'finish', model: string): JobOp => {
+  const defaults3d = (pass: Raster3dParams['pass'], model: string): JobOp => {
     const j = job();
     const want = pass === 'rough' ? ['flat'] : ['ball', 'taperedBall'];
-    const tool = library.find((t) => want.includes(t.cutter.type)) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
-    const rec = feedsFor(tool, j.material as Material, pass, machineById(j.machineId).spindle);
+    let tool = library.find((t) => want.includes(t.cutter.type)) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
+    if (pass === 'rest') {
+      // the biggest ball smaller than the smallest finishing tool on this model, else the smallest ball
+      const fin = j.ops.filter((o) => o.kind === 'raster3d' && o.enabled && (o.params as Partial<Raster3dParams>).model === model && (o.params as Partial<Raster3dParams>).pass !== 'rough');
+      const lim = Math.min(...fin.map((o) => toolOf(o.toolNumber)?.cutter.diameter ?? Infinity));
+      const balls = library.filter((t) => want.includes(t.cutter.type)).sort((a, b) => a.cutter.diameter - b.cutter.diameter);
+      tool = balls.filter((t) => t.cutter.diameter < lim - 1e-6).pop() ?? balls[0] ?? tool;
+    }
+    const rec = feedsFor(tool, j.material as Material, pass === 'rough' ? 'rough' : 'finish', machineById(j.machineId).spindle);
     const params: Raster3dParams = { ...structuredClone(OP_DEFAULTS.raster3d), model, pass, stepdown: rec.stepdown, stepover: rec.stepover };
     const n = j.ops.filter((o) => o.kind === 'raster3d' && (o.params as Partial<Raster3dParams>).pass === pass).length + 1;
     return { id: newId(), kind: 'raster3d', name: `3D ${pass} ${n}`, toolNumber: tool.number, rpm: rec.rpm, feed: rec.feed, plunge: rec.plunge, enabled: true, params: params as unknown as Record<string, unknown> };
@@ -412,7 +423,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
         return renderStats();
       }
       await loadLibrary();
-      const o = defaults3d(b.dataset.pass as 'rough' | 'finish', m.id);
+      const o = defaults3d(b.dataset.pass as Raster3dParams['pass'], m.id);
       j.ops.push(o);
       selected = o.id;
       msg = '';
@@ -454,7 +465,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       await loadLibrary();
       const t = toolOf(op.toolNumber);
       if (!t) return;
-      const pass = op.kind === 'raster3d' && (op.params as Partial<Raster3dParams>).pass === 'finish' ? 'finish' : 'rough';
+      const pass = op.kind === 'raster3d' && (op.params as Partial<Raster3dParams>).pass !== 'rough' ? 'finish' : 'rough';
       const rec = feedsFor(t, j.material as Material, pass, machineById(j.machineId).spindle);
       if (op.kind === 'raster3d') {
         op.params.stepdown = rec.stepdown;
@@ -559,7 +570,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       P.pass = t.value;
       const tl = toolOf(op.toolNumber);
       if (tl) {
-        const rec = feedsFor(tl, j.material as Material, t.value === 'finish' ? 'finish' : 'rough', machineById(j.machineId).spindle);
+        const rec = feedsFor(tl, j.material as Material, t.value === 'rough' ? 'rough' : 'finish', machineById(j.machineId).spindle);
         P.stepover = rec.stepover;
         P.stepdown = rec.stepdown;
       }

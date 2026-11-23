@@ -41,7 +41,10 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `raster3d.ts`: 3D roughing (Z levels) / finishing (raster) of a placed model, from
     heightfieldCam's `roughingPaths` / `finishingRuns`; `pathSetToMoves` (ramps, short hops) turns
     their part-coordinate paths into work moves. A finishing pass uses the last enabled roughing
-    pass before it on the same model to skip done floor. Grids are cached by placement.
+    pass before it on the same model to skip done floor. A rest pass (smaller tool) cuts only where
+    the finish/rest passes before it on the model leave material (`detailRegion`/`detailPaths`),
+    in levels `stepdown` below that leftover surface (upper levels at a roughing stepover).
+    Grids are cached by placement.
 - `src/cam/model3d.ts`: `Model3D` (STL triangles kept in the job as base64 float32, plus the
   placement: up axis, turn, scale, front-left corner, top depth below the stock top, margin,
   grid resolution), `placeModel`, `modelGrid`. Models are added by Import STL (with a roughing
@@ -120,9 +123,8 @@ post change before cutting stock.
    Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
 4. V-carve and inlay (done, first pass), text tool (done). Text on an arc (done). Single-line
    engraving fonts and the Engrave operation (done).
-5. 3D from STL (done, first pass): import, place, roughing + finishing. Not yet: rest machining
-   with a smaller tool (`detailPaths` exists in heightfieldCam), a boundary other than the model's
-   box, keeping the shank clear on deep walls.
+5. 3D from STL (done, first pass): import, place, roughing, finishing, rest machining with a
+   smaller tool. Not yet: a boundary other than the model's box, keeping the shank clear on deep walls.
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work
    offset. It plays back **the posted G-code file itself** (G0/G1/G2/G3, G53, G54–G59, T# M6,

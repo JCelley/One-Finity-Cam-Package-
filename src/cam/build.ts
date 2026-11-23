@@ -5,6 +5,7 @@ import { machineById } from './machines';
 import type { LibraryTool } from './tools/library';
 import { recommend, type Material } from '../core/heightfieldCam';
 import type { Move } from './toolpath';
+import type { Cutter } from '../core/cutter';
 import { DEFAULT_TOL, fmtMm, type Ctx } from './ops/contour';
 import { profileOp, PROFILE_DEFAULTS, type ProfileParams } from './ops/profile';
 import { pocketOp, POCKET_DEFAULTS, type PocketParams } from './ops/pocket';
@@ -135,16 +136,17 @@ export function buildJob(job: JobFile, doc: CadDoc, library: LibraryTool[], fmt:
           depth = 0;
         } else {
           // a finishing pass knows what the roughing before it on the same model left
+          // and a rest pass, what the finishing (and rest) passes before it left
           let rough: RoughBefore | undefined;
-          if (rp.pass === 'finish') {
-            for (const q of job.ops.slice(0, job.ops.indexOf(op))) {
-              const qp = q.params as Partial<Raster3dParams>;
-              const qt = tools.get(q.toolNumber);
-              if (q.enabled && q.kind === 'raster3d' && qp.pass === 'rough' && qp.model === model.id && qt)
-                rough = { tool: qt.cutter, allowance: qp.allowance ?? RASTER3D_DEFAULTS.allowance, stepover: qp.stepover ?? RASTER3D_DEFAULTS.stepover };
-            }
+          const finished: Cutter[] = [];
+          for (const q of job.ops.slice(0, job.ops.indexOf(op))) {
+            const qp = q.params as Partial<Raster3dParams>;
+            const qt = tools.get(q.toolNumber);
+            if (!q.enabled || q.kind !== 'raster3d' || qp.model !== model.id || !qt) continue;
+            if (qp.pass === 'rough') rough = { tool: qt.cutter, allowance: qp.allowance ?? RASTER3D_DEFAULTS.allowance, stepover: qp.stepover ?? RASTER3D_DEFAULTS.stepover };
+            else finished.push(qt.cutter);
           }
-          const r = raster3dOp(model, tool.cutter, rp, ctx, rough);
+          const r = raster3dOp(model, tool.cutter, rp, ctx, rp.pass === 'finish' ? rough : undefined, finished);
           moves = r.moves;
           warnings.push(...r.warnings);
           depth = r.depth;

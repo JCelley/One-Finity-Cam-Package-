@@ -19,6 +19,17 @@ function pyramid(s: number, h: number): Float32Array {
   t.push(...b[0], ...b[2], ...b[1], ...b[0], ...b[3], ...b[2]);
   return Float32Array.from(t);
 }
+/** a closed box from (x0, y0, z0) to (x1, y1, z1) */
+function box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): number[] {
+  const v = (i: number) => [i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0];
+  const f = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]];
+  const t: number[] = [];
+  for (const [a, b, c, d] of f) t.push(...v(a), ...v(b), ...v(c), ...v(a), ...v(c), ...v(d));
+  return t;
+}
+/** a 21.5 × 20 block, 5 high, with a slot 1.5 wide and 3 deep along Y at x = 10 … 11.5 */
+const slotted = () => Float32Array.from([...box(0, 0, 0, 21.5, 20, 2), ...box(0, 0, 0, 10, 20, 5), ...box(11.5, 0, 0, 21.5, 20, 5)]);
+
 /** height of that pyramid over (x, y) */
 const pyrZ = (s: number, h: number, x: number, y: number) => Math.max(0, h * (1 - Math.max(Math.abs(x - s / 2), Math.abs(y - s / 2)) / (s / 2)));
 
@@ -158,6 +169,38 @@ describe('3D raster operation', () => {
     expect(touching / cuts.length).toBeGreaterThan(0.9);
   });
 
+  it('rest machining: a smaller tool goes only into the slot the finishing ball could not reach', () => {
+    const sm = model(slotted(), { at: { x: 0, y: 0 }, res: 0.1, margin: 2 });
+    const small = DEFAULT_TOOLS[5].cutter; // 1/16" tapered ball
+    const rp = { ...RASTER3D_DEFAULTS, model: 'm', stepover: 0.3, dir: 'x' as const };
+    expect(raster3dOp(sm, small, { ...rp, pass: 'rest' }, ctx).warnings[0]).toMatch(/after a 3D finish/);
+    // a bigger tool than the finishing one has nothing left to do
+    expect(raster3dOp(sm, flat, { ...rp, pass: 'rest' }, ctx, undefined, [ball]).warnings[0]).toMatch(/Nothing left/);
+    const r = raster3dOp(sm, small, { ...rp, pass: 'rest' }, ctx, undefined, [ball]);
+    expect(r.warnings).toEqual([]);
+    const cuts = trace(r.moves).filter((p) => p.kind === 'feed');
+    expect(cuts.length).toBeGreaterThan(20);
+    // the slot and a tool width either side of it, nothing else on the top
+    // (and the fillets the ball leaves where the outer walls meet the margin floor)
+    for (const p of cuts) expect(Math.min(Math.abs(p.x - 10.75) - 0.75, Math.abs(p.x), Math.abs(p.x - 21.5))).toBeLessThan(2 + 0.6);
+    // the ball stops ~1.3 above the slot floor (z −3); the small tool gets to it, never below it
+    // (away from the slot's open ends, where it goes on down to the margin floor)
+    const mid = (p: { x: number; y: number }) => Math.abs(p.x - 10.75) < 0.4 && p.y > 1 && p.y < 19;
+    const inSlot = cuts.filter(mid);
+    expect(Math.min(...inSlot.map((p) => p.z))).toBeCloseTo(-3, 1);
+    for (const p of inSlot) expect(p.z).toBeGreaterThan(-3 - 0.05);
+    for (const p of cuts) expect(p.z).toBeGreaterThan(-5 - 0.05);
+    const fin = trace(raster3dOp(sm, ball, { ...rp, pass: 'finish' }, ctx).moves).filter((p) => p.kind === 'feed' && mid(p));
+    expect(Math.min(...fin.map((p) => p.z))).toBeGreaterThan(-3 + 1);
+    // in levels: the first never more than the stepdown below what the ball left
+    const lv = trace(raster3dOp(sm, small, { ...rp, pass: 'rest', stepdown: 1 }, ctx, undefined, [ball]).moves).filter((p) => p.kind === 'feed' && mid(p));
+    const zs = [...new Set(lv.map((p) => +p.z.toFixed(2)))].sort((a, b) => b - a);
+    expect(zs).toContain(-3);
+    expect(lv.length).toBeGreaterThan(2 * inSlot.length);
+    // the ball leaves the slot ~0.15 below the top: levels 1 mm apart from there
+    for (const want of [-1.15, -2.15]) expect(zs.some((z) => Math.abs(z - want) < 0.05)).toBe(true);
+  });
+
   it('a model bigger than the grid limit is refused with a message', () => {
     const big = model(pyramid(2000, 5), { res: 0.25 });
     expect(raster3dOp(big, flat, { ...RASTER3D_DEFAULTS, model: 'm' }, ctx).warnings[0]).toMatch(/resolution coarser/);
@@ -177,5 +220,23 @@ describe('3D raster operation', () => {
     const g = jobGcode(job, b, 'golden');
     expect(g.text.match(/T\d+ M6/g)).toEqual(['T1 M6', 'T3 M6']);
     await expect(g.text).toMatchFileSnapshot('golden/pyramid_3d.nc');
+  });
+
+  it('rough, finish, then rest with a smaller tool: matches the golden file', async () => {
+    const job = newJob('Slot rest', 'woodworker');
+    job.stock = { x: 40, y: 30, z: 12 };
+    job.models = [model(slotted(), { at: { x: 6, y: 5 }, res: 0.2, margin: 4 })];
+    const op = (id: string, toolNumber: number, params: Record<string, unknown>) => ({ id, kind: 'raster3d' as const, name: `3D ${params.pass}`, toolNumber, rpm: 18000, feed: 1500, plunge: 500, enabled: true, params: { model: 'm', ...params } });
+    job.ops = [op('r', 1, { pass: 'rough', stepdown: 3, stepover: 2.5, allowance: 0.5 }), op('f', 3, { pass: 'finish', stepover: 1.5, dir: 'x' }), op('d', 6, { pass: 'rest', stepover: 0.5, dir: 'x' })];
+    const b = buildJob(job, emptyDoc(), DEFAULT_TOOLS);
+    expect(b.ops.flatMap((o) => o.warnings)).toEqual([]);
+    expect(b.ops.every((o) => o.moves.length > 0)).toBe(true);
+    // turned off, the finishing pass no longer counts: the rest pass says it needs one
+    job.ops[1].enabled = false;
+    expect(buildJob(job, emptyDoc(), DEFAULT_TOOLS).ops.find((o) => o.id === 'd')!.warnings[0]).toMatch(/after a 3D finish/);
+    job.ops[1].enabled = true;
+    const g = jobGcode(job, b, 'golden');
+    expect(g.text.match(/T\d+ M6/g)).toEqual(['T1 M6', 'T3 M6', 'T6 M6']);
+    await expect(g.text).toMatchFileSnapshot('golden/slot_rest_3d.nc');
   });
 });
