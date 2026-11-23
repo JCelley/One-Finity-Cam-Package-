@@ -179,6 +179,17 @@ export class CadEditor {
     return this.selOrder.map((id) => by.get(id)).filter((e): e is Entity => !!e);
   }
 
+  /** ids of the selected drawing items, in the order they were picked */
+  selectedIds(): string[] {
+    return [...this.selOrder];
+  }
+
+  /** selects these items (e.g. an operation's geometry) */
+  selectIds(ids: string[]) {
+    const have = new Set(this.doc.entities.map((e) => e.id));
+    this.select(ids.filter((id) => have.has(id)));
+  }
+
   private select(ids: string[], addTo = false, toggle = false) {
     if (!addTo && !toggle) {
       this.sel.clear();

@@ -20,7 +20,19 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `heightfield.ts` (`MachGrid`), `grid.ts`, `mesh.ts`/`stl.ts` (STL write), `setup.ts` (setup sheet)
 - `src/cam/toolpath.ts`: the `Move` list every operation produces and every post reads
   (absolute mm in the work coordinate system, XY arcs with I/J from the start point)
-- `src/cam/ops/`: one module per operation (profile, pocket, drill, vcarve, inlay, raster3d). Still to write.
+- `src/cam/ops/`: one module per operation, pure functions from drawing items + params to `Move[]`
+  and warnings. Depths are positive mm below the stock top; `Ctx.z(depth)` gives work Z.
+  - `contour.ts`: chaining items into contours, depth `levels`, `LoopWalker`/`walkLoop` (ramps and
+    tab jumps along a loop), approach/retract, link checks (`crossesLoops`, `inRegion`)
+  - `profile.ts` (outside/inside/on, climb/conventional, ramp, tabs, allowance), `pocket.ts`
+    (offset rings inner→outer or raster + wall pass, islands, links kept at depth when short and
+    inside), `drill.ts` (pecks as plain G0/G1, no canned cycles)
+  - vcarve, inlay, raster3d: still to write
+- `src/cam/build.ts`: `buildJob` (job + drawing + library → moves, warnings, `moveStats` times)
+  and `jobGcode` (→ `postMasso`). `opParams` merges saved params over `OP_DEFAULTS`.
+- `src/cam/preview.ts`: moves → line segments for the 3D view
+- `src/workers/cam.worker.ts` + `src/ui/camClient.ts`: toolpaths are computed off the main thread;
+  only the newest request's reply is used
 - `src/cam/tools/library.ts`: tool library; `number` = MASSO tool-table slot (used by `T# M6` and `G43 H#`)
 - `src/cam/machines.ts`: Onefinity models and travel envelopes (nominal, verify on the machine)
 - `src/post/masso.ts`: MASSO post (`postMasso`, `massoFileName`)
@@ -46,7 +58,9 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `svg.ts`: SVG import (own XML tokenizer, transforms, units/viewBox, Y flipped) and export
 - `src/ui/`: `main.ts` (tabs), `jobBar.ts` (job New/Open/Save/Recent, machine, stock, units;
   autosaves to the store), `toolPanel.ts`, `units.ts` (display units, `parseLen` accepts fractions
-  and unit suffixes), `cad/` (canvas `editor.ts`, `render.ts`, `viewport.ts`)
+  and unit suffixes), `cad/` (canvas `editor.ts`, `render.ts`, `viewport.ts`), `opsPanel.ts`
+  (Toolpaths tab: operations from the drawing selection, settings, recommended feeds, warnings,
+  Save G-code), `preview3d.ts` (three.js stock + drawing + toolpaths, Z up)
 
 Not in the CAD yet: constraints, text, fillets/trim/extend, and keeping splines as curves
 (they come in as polylines).
@@ -70,8 +84,9 @@ post change before cutting stock.
 ## Milestones
 1. Scaffold, port, MASSO post + golden tests (done)
 2. 2D CAD core: draw/edit/snap/dimension, DXF/SVG import/export, undo (done, first pass)
-3. Profile / pocket / drill + 3D toolpath preview + time estimate (port the worker pattern from
-   Relief-Generator `src/workers/`)
+3. Profile / pocket / drill + 3D toolpath preview + time estimate (done, first pass). Not yet:
+   lead-in/out, arc fitting (toolpaths are short G1 segments), helical entry, rest machining.
+   Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
 4. V-carve and inlay
 5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,

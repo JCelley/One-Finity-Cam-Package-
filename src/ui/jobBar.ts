@@ -1,7 +1,7 @@
 import { MACHINES } from '../cam/machines';
 import { DEFAULT_TOOLS } from '../cam/tools/library';
 import { readDoc, type CadDoc } from '../cad/doc';
-import { FormatError, JOB_EXT, jobToText, newJob, parseJob, safeFileName, toolMismatches } from '../io/formats';
+import { FormatError, JOB_EXT, jobToText, newJob, parseJob, safeFileName, toolMismatches, type JobFile } from '../io/formats';
 import { openTextFile, saveTextFile, type FileHandle } from '../io/files';
 import { newJobId, type JobRecord, type Store } from '../io/store';
 import { fmtLen, getUnits, onUnits, parseLen, setUnits } from './units';
@@ -15,7 +15,17 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
  * job is autosaved to the browser store on every change (half a second after the last one); the
  * job file on disk is written only by Save.
  */
-export async function mountJobBar(root: HTMLElement, store: Store, editor: CadEditor) {
+export interface JobApi {
+  /** the open job (live object: change it, then call changed()) */
+  readonly job: JobFile;
+  changed(): void;
+  /** called after any change to the job and when another job is opened */
+  onChange(f: () => void): void;
+}
+
+export async function mountJobBar(root: HTMLElement, store: Store, editor: CadEditor): Promise<JobApi> {
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach((f) => f());
   let rec: JobRecord = await restore();
   let handle: FileHandle | undefined;
   let msg = '';
@@ -55,6 +65,7 @@ export async function mountJobBar(root: HTMLElement, store: Store, editor: CadEd
     rec.dirty = true;
     persist();
     render();
+    notify();
   };
 
   const show = (r: JobRecord) => {
@@ -72,6 +83,7 @@ export async function mountJobBar(root: HTMLElement, store: Store, editor: CadEd
       /* storage blocked */
     }
     render();
+    notify();
   };
 
   editor.onChange = (doc: CadDoc) => {
@@ -196,4 +208,11 @@ ${!store.persistent ? '<div class="err">Browser storage is unavailable: save the
 
   onUnits(() => render());
   show(rec);
+  return {
+    get job() {
+      return rec.job;
+    },
+    changed,
+    onChange: (f) => void listeners.add(f),
+  };
 }
