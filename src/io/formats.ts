@@ -27,7 +27,7 @@ export interface ToolLibraryFile {
 /** one operation in a job: its kind and settings; the CAM modules read `params` (milestone 3+) */
 export interface JobOp {
   id: string;
-  kind: 'profile' | 'pocket' | 'drill' | 'vcarve' | 'inlay' | 'raster3d';
+  kind: 'profile' | 'pocket' | 'drill' | 'engrave' | 'vcarve' | 'inlay' | 'raster3d';
   name: string;
   toolNumber: number;
   rpm: number;
@@ -138,7 +138,7 @@ export function parseToolLibrary(text: string): ToolLibraryFile {
 
 const MIGRATE_JOB: Record<number, (v: Record<string, unknown>) => Record<string, unknown>> = {};
 
-const OP_KINDS: readonly JobOp['kind'][] = ['profile', 'pocket', 'drill', 'vcarve', 'inlay', 'raster3d'];
+const OP_KINDS: readonly JobOp['kind'][] = ['profile', 'pocket', 'drill', 'engrave', 'vcarve', 'inlay', 'raster3d'];
 
 export function newJob(name: string, machineId: string): JobFile {
   return {

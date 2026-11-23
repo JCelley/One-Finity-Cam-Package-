@@ -9,6 +9,7 @@ import { DEFAULT_TOL, fmtMm, type Ctx } from './ops/contour';
 import { profileOp, PROFILE_DEFAULTS, type ProfileParams } from './ops/profile';
 import { pocketOp, POCKET_DEFAULTS, type PocketParams } from './ops/pocket';
 import { drillOp, DRILL_DEFAULTS, type DrillParams } from './ops/drill';
+import { engraveOp, ENGRAVE_DEFAULTS, type EngraveParams } from './ops/engrave';
 import { inlayOp, INLAY_DEFAULTS, vbitOf, vcarveOp, VCARVE_DEFAULTS, type CarveResult, type InlayParams, type VcarveParams } from './ops/inlay';
 import type { Entity } from '../cad/doc';
 
@@ -17,9 +18,9 @@ import type { Entity } from '../cad/doc';
  * estimates, and into a MASSO G-code file. Pure: runs in the worker and in tests.
  */
 
-export type OpKind = 'profile' | 'pocket' | 'drill' | 'vcarve' | 'inlay';
-export const OP_DEFAULTS = { profile: PROFILE_DEFAULTS, pocket: POCKET_DEFAULTS, drill: DRILL_DEFAULTS, vcarve: VCARVE_DEFAULTS, inlay: INLAY_DEFAULTS };
-export const OP_LABEL: Record<OpKind, string> = { profile: 'Profile', pocket: 'Pocket', drill: 'Drill', vcarve: 'V-carve', inlay: 'Inlay' };
+export type OpKind = 'profile' | 'pocket' | 'drill' | 'engrave' | 'vcarve' | 'inlay';
+export const OP_DEFAULTS = { profile: PROFILE_DEFAULTS, pocket: POCKET_DEFAULTS, drill: DRILL_DEFAULTS, engrave: ENGRAVE_DEFAULTS, vcarve: VCARVE_DEFAULTS, inlay: INLAY_DEFAULTS };
+export const OP_LABEL: Record<OpKind, string> = { profile: 'Profile', pocket: 'Pocket', drill: 'Drill', engrave: 'Engrave', vcarve: 'V-carve', inlay: 'Inlay' };
 
 /** the op's settings merged over the defaults (old files keep working when settings are added) */
 export function opParams<K extends OpKind>(op: JobOp & { kind: K }): (typeof OP_DEFAULTS)[K] & { geometry: string[] } {
@@ -163,10 +164,11 @@ export function buildJob(job: JobFile, doc: CadDoc, library: LibraryTool[], fmt:
           }
         }
       } else {
-        if (tool.cutter.type === 'vbit' && kind !== 'drill') warnings.push('A V-bit cuts a V, not a straight wall: profile/pocket sizes assume its tip width');
+        if (tool.cutter.type === 'vbit' && kind !== 'drill' && kind !== 'engrave') warnings.push('A V-bit cuts a V, not a straight wall: profile/pocket sizes assume its tip width');
         const r =
           kind === 'profile' ? profileOp(items, dia, p as ProfileParams, ctx)
           : kind === 'pocket' ? pocketOp(items, dia, p as PocketParams, ctx)
+          : kind === 'engrave' ? engraveOp(items, p as unknown as EngraveParams, ctx)
           : drillOp(items, dia, p as DrillParams, ctx);
         moves = r.moves;
         warnings.push(...r.warnings);

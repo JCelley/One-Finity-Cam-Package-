@@ -35,7 +35,7 @@ export function pocketOp(items: Entity[], toolDia: number, p: PocketParams, ctx:
   const out: Move[] = [];
   const r = toolDia / 2;
   const closed = contoursOf(items, ctx.tol).filter((c) => c.closed);
-  if (closed.length < contoursOf(items, ctx.tol).length) warnings.push('Open lines were left out: a pocket needs closed outlines');
+  if (closed.length < contoursOf(items, ctx.tol).length) warnings.push('Open lines were left out: a pocket needs closed outlines (single-line text goes with Engrave)');
   if (!closed.length) return { moves: [], warnings: [...warnings, 'Nothing to pocket: pick closed outlines'] };
   const passes = levels(p.top, p.depth - p.allowance, p.stepdown);
   if (!passes.length) return { moves: [], warnings: ['Depth must be below the start depth'] };

@@ -1,6 +1,7 @@
 import { readDoc } from '../cad/doc';
 import { buildJob, jobGcode, OP_DEFAULTS, OP_LABEL, opParams, type OpKind } from '../cam/build';
 import { machineById } from '../cam/machines';
+import { grooveWidth } from '../cam/ops/engrave';
 import { DEFAULT_TOOLS, describeTool, feedsFor, type LibraryTool } from '../cam/tools/library';
 import type { Material } from '../core/heightfieldCam';
 import type { JobOp } from '../io/formats';
@@ -42,6 +43,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       <button data-a="add" data-kind="profile" title="Cut along or around the selected outlines">Profile</button>
       <button data-a="add" data-kind="pocket" title="Clear the area inside the selected closed outlines">Pocket</button>
       <button data-a="add" data-kind="drill" title="Drill at the centre of the selected circles">Drill</button>
+      <button data-a="add" data-kind="engrave" title="Follow the selected lines with the tool tip: single-line text, layout lines">Engrave</button>
       <button data-a="add" data-kind="vcarve" title="V-carve inside the selected closed outlines (letters, shapes)">V-carve</button>
       <button data-a="add" data-kind="inlay" title="V-carved inlay: a pocket in one board and a mirrored plug for another">Inlay</button>
     </div>
@@ -205,6 +207,13 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
   <div class="row3">${select('strategy', 'Pattern', p.strategy as string, [['offset', 'Offset (rings)'], ['raster', 'Raster (zig-zag)']])}${field('angle', 'Angle °', String(p.angle), 'Raster line direction', 4)}${field('stepover', 'Stepover %', String(Math.round((p.stepover as number) * 100)), '% of the tool diameter', 4)}</div>
   <div class="row3">${len('depth', 'Depth')}${len('stepdown', 'Stepdown')}${len('allowance', 'Leave', 'Material left on walls and floor')}</div>
   <div class="row3">${select('climb', 'Direction', String(p.climb), [['true', 'Climb'], ['false', 'Conventional']])}${field('ramp', 'Ramp °', String(p.ramp), '', 4)}${len('top', 'Start depth')}</div>`;
+    } else if (kind === 'engrave') {
+      const t = toolOf(op.toolNumber);
+      const w = t ? grooveWidth(t.cutter, (p.depth as number) - (p.top as number)) : 0;
+      h += `
+  <div class="row3">${len('depth', 'Depth', 'Groove depth below the top of the stock')}${len('stepdown', 'Stepdown', 'Deepest cut per pass; 0 = one pass')}${len('lift', 'Lift', 'Between strokes the tool lifts this far above the stock, not all the way to the safe height')}</div>
+  ${len('top', 'Start depth', 'Usually 0 (the top of the stock)')}
+  ${t ? `<p class="hint">With ${esc(describeTool(t))} the groove is about ${L(w)} wide at this depth${t.cutter.type === 'vbit' ? ' (deeper = wider)' : ''}.</p>` : ''}`;
     } else if (kind === 'vcarve' || kind === 'inlay') {
       const clearOpts: [string, string][] = [['0', 'None'], ...library.filter((t) => t.cutter.type === 'flat').map((t) => [String(t.number), `T${t.number} ${t.name}`] as [string, string])];
       if (kind === 'inlay') {
@@ -246,12 +255,14 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
   const defaults = (kind: OpKind): JobOp => {
     const j = job();
     const carve = kind === 'vcarve' || kind === 'inlay';
-    const tool = (carve ? library.find((t) => t.cutter.type === 'vbit') : null) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
+    const tool = (carve || kind === 'engrave' ? library.find((t) => t.cutter.type === 'vbit') : null) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
     const rec = feedsFor(tool, j.material as Material, 'rough', machineById(j.machineId).spindle);
     const params: Record<string, unknown> = { ...structuredClone(OP_DEFAULTS[kind]), geometry: editor.selectedIds() };
     if (kind === 'profile' || kind === 'drill') params.depth = Math.round((j.stock.z + 0.5) * 100) / 100;
     if (kind === 'pocket') params.depth = Math.min(6, Math.round((j.stock.z / 3) * 100) / 100);
-    if (carve) {
+    if (kind === 'engrave') {
+      // a shallow line; V-bits cut it in one pass
+    } else if (carve) {
       params.clearTool = library.find((t) => t.cutter.type === 'flat')?.number ?? 0;
       if (kind === 'inlay') params.pocketDepth = Math.min(5, Math.round((j.stock.z / 3) * 100) / 100);
     } else if (kind !== 'drill') {
@@ -342,7 +353,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     const op = j.ops.find((o) => o.id === selected);
     if (!k || !op) return;
     const P = op.params as Record<string, unknown>;
-    const lenKeys = ['depth', 'stepdown', 'allowance', 'top', 'peck', 'tabs.width', 'tabs.height', 'maxDepth', 'pocketDepth', 'gap', 'proud', 'margin'];
+    const lenKeys = ['depth', 'stepdown', 'allowance', 'top', 'peck', 'tabs.width', 'tabs.height', 'maxDepth', 'pocketDepth', 'gap', 'proud', 'margin', 'lift'];
     let ok = true;
     if (k === 'name') op.name = t.value.trim() || op.name;
     else if (k === 'tool') op.toolNumber = Number(t.value);

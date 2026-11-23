@@ -27,6 +27,8 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `profile.ts` (outside/inside/on, climb/conventional, ramp, tabs, allowance), `pocket.ts`
     (offset rings inner→outer or raster + wall pass, islands, links kept at depth when short and
     inside), `drill.ts` (pecks as plain G0/G1, no canned cycles)
+  - `engrave.ts`: the tool follows the lines themselves (single-line text, layout lines);
+    nearest-next order, short lifts between strokes, `grooveWidth`
   - `vcarve.ts`: V-carving by largest inscribed circles: walk each boundary loop (material on the
     left), at each point find the biggest circle touching there that fits; its centre is the tip
     position, its radius the depth. Reflex corners are swept with a fan of normals; samples are
@@ -64,7 +66,10 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `dxf.ts`: DXF import (blocks, splines/ellipses flattened, OCS mirror, $INSUNITS) and R12 export
   - `svg.ts`: SVG import (own XML tokenizer, transforms, units/viewBox, Y flipped) and export;
     `pathDataShapes` (path `d` → polylines, used for font glyphs)
-  - `text.ts`: text → closed outlines with opentype.js (`height` = cap height; kerning, spacing,
+  - `strokeFont.ts`: single-line (Hershey/EMS) SVG fonts, bundled in `src/assets/strokefonts/`
+    (font ids `line:<key>`); their cap height is measured from 'H'
+  - `text.ts`: with a single-line font, centre-line strokes (aligned by the strokes, not the
+    advance widths; not merged). Otherwise text → closed outlines with opentype.js (`height` = cap height; kerning, spacing,
     alignment, rotation, lines, `arc` radius over the top or under the bottom of a circle, each
     letter placed square to the curve), glyphs merged by the non-zero rule (`unionNonZero`)
   - Items made together share `Entity.group` (selected together); text outlines keep their
@@ -102,7 +107,8 @@ post change before cutting stock.
 3. Profile / pocket / drill + 3D toolpath preview + time estimate (done, first pass). Not yet:
    lead-in/out, arc fitting (toolpaths are short G1 segments), helical entry, rest machining.
    Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
-4. V-carve and inlay (done, first pass), text tool (done). Text on an arc (done). Not yet: single-line engraving fonts.
+4. V-carve and inlay (done, first pass), text tool (done). Text on an arc (done). Single-line
+   engraving fonts and the Engrave operation (done).
 5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work

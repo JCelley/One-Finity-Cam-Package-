@@ -50,7 +50,7 @@ export const vbitOf = (angleDeg: number, tipDia: number): VcarveTool => ({ half:
 function outlines(items: Entity[], ctx: Ctx, warnings: string[]): Pt[][] {
   const cs = contoursOf(items, ctx.tol);
   const closed = cs.filter((c) => c.closed).map((c) => c.pts);
-  if (closed.length < cs.length) warnings.push('Open lines were left out: V-carving needs closed outlines');
+  if (closed.length < cs.length) warnings.push('Open lines were left out: V-carving needs closed outlines (single-line text goes with Engrave)');
   return closed;
 }
 

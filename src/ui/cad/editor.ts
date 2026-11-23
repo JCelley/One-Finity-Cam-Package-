@@ -1,7 +1,7 @@
 import { arc3, boxValid, dist, flatten, intersect, near, prims, shapeBox, shapeDistance, sub, type Box, type Prim, type Pt, type Shape } from '../../cad/geom';
 import { DEFAULT_LAYER, entity, History, joinShapes, newId, type CadDoc, type Entity, type Layer, type TextMeta } from '../../cad/doc';
 import { textOutlines, TEXT_DEFAULTS } from '../../cad/text';
-import { DEFAULT_FONT, type FontCatalog } from '../fonts';
+import { DEFAULT_FONT, type FontCatalog, type FontEntry } from '../fonts';
 import { findSnap, type Snap } from '../../cad/snap';
 import { booleanShapes, mirrorAcross, offsetShapes, rotateAbout, scaleAbout, transformShape, translate, type BoolOp, type Xform } from '../../cad/ops';
 import { parseDxf, writeDxf } from '../../cad/dxf';
@@ -70,7 +70,7 @@ export class CadEditor {
   private els: Record<string, HTMLElement> = {};
   stock: { x: number; y: number } | null = null;
   private fonts: FontCatalog | null = null;
-  private fontList: { id: string; name: string }[] = [];
+  private fontList: FontEntry[] = [];
   /** text being placed (new) or edited (an existing group) */
   private textDraft: { meta: TextMeta; group: string | null } | null = null;
   private textPreview: Shape[] = [];
@@ -901,8 +901,10 @@ export class CadEditor {
     const f = el.dataset.text!;
     const m = d.meta;
     if (f === 'text') m.text = el.value;
-    else if (f === 'font') m.font = el.value;
-    else if (f === 'align') m.align = el.value as TextMeta['align'];
+    else if (f === 'font') {
+      m.font = el.value;
+      el.closest('.textform')?.querySelector<HTMLElement>('.strokehint')?.toggleAttribute('hidden', !m.font.startsWith('line:'));
+    } else if (f === 'align') m.align = el.value as TextMeta['align'];
     else if (f === 'angle') m.angle = parseFloat(el.value) || 0;
     else if (f === 'lineSpacing') m.lineSpacing = Math.max(0.5, parseFloat(el.value) || 1.6);
     else if (f === 'arcSide') m.arcSide = el.value as 'top' | 'bottom';
@@ -921,11 +923,14 @@ export class CadEditor {
   private textForm(): string {
     const d = this.textDraft!;
     const m = d.meta, L = (mm: number) => fmtLen(mm);
-    const fonts = this.fontList.length ? this.fontList : [{ id: m.font, name: m.font }];
+    const fonts: FontEntry[] = this.fontList.length ? this.fontList : [{ id: m.font, name: m.font, single: m.font.startsWith('line:') }];
+    const opts = (single: boolean) => fonts.filter((f) => f.single === single).map((f) => `<option value="${esc(f.id)}"${f.id === m.font ? ' selected' : ''}>${esc(f.name)}</option>`).join('');
+    const single = m.font.startsWith('line:');
     return `<div class="textform">
   <h3>${d.group ? 'Edit text' : 'New text'}</h3>
   <textarea data-text="text" rows="2" spellcheck="false">${esc(m.text)}</textarea>
-  <label>Font <select data-text="font">${fonts.map((f) => `<option value="${esc(f.id)}"${f.id === m.font ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
+  <label>Font <select data-text="font"><optgroup label="Outline fonts (V-carve, pocket, profile)">${opts(false)}</optgroup><optgroup label="Single-line fonts (Engrave)">${opts(true)}</optgroup></select></label>
+  <p class="hint strokehint"${single ? '' : ' hidden'}>Single-line font: the letters are centre lines, for an Engrave toolpath.</p>
   <button data-act="loadfont" title="Use a TTF, OTF or WOFF font file from your computer">Load font…</button>
   <div class="grid2">
     <label title="Height of the capital letters">Height <input data-text="height" value="${L(m.height)}"></label>

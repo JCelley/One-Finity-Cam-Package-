@@ -23,6 +23,27 @@ Only the font files the text tool lists are shipped.
 | Dancing Script Bold | `@fontsource/dancing-script` | OFL-1.1 |
 | Great Vibes | `@fontsource/great-vibes` | OFL-1.1 |
 
+## Single-line engraving fonts
+
+SVG fonts in `src/assets/strokefonts/`, copied unchanged (licence notes included in each file's
+`<metadata>`) from the Evil Mad Scientist Hershey Text distribution, as packaged in the
+`hersheytext` npm package 2.0.0. The package itself is not a dependency (it pulls in an old
+`cheerio` with security advisories).
+
+| Font | Source | License |
+|---|---|---|
+| EMS Readability, EMS Tech, EMS Nixish, EMS Osmotron, EMS Felix, EMS Allure | Sheldon B. Michaels, SVG conversion by Windell H. Oskay (single-line derivatives of OFL fonts) | OFL-1.1 |
+| Hershey Sans 1-stroke, Hershey Serif medium, Hershey Script 1-stroke, Hershey Gothic English | Hershey fonts, SVG conversion by Windell H. Oskay | Hershey font licence (below) |
+
+The Hershey licence allows any use, commercial included, provided these acknowledgements go with
+the font data (they are also inside each file):
+- The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S.
+  National Bureau of Standards.
+- The format of the Font data in this distribution was originally created by James Hurt,
+  Cognition, Inc., 900 Technology Park Drive, Billerica, MA 01821.
+
+and the data is not converted into the U.S. NTIS eight-byte-per-point format.
+
 Fonts the user loads with "Load font…" stay in their browser and are never uploaded; the user is
 responsible for their licence.
 

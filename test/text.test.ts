@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parse } from 'opentype.js';
 import { capHeight, textOutlines, TEXT_DEFAULTS } from '../src/cad/text';
+import { parseSvgFont } from '../src/cad/strokeFont';
 import { shapeBox, type Box, type Shape } from '../src/cad/geom';
 import { regionArea } from '../src/cad/ops';
 
@@ -110,4 +111,51 @@ describe('text on an arc', () => {
   it('radius 0 is straight text', () => {
     expect(textOutlines(mont, { ...base, arc: 0 })).toEqual(textOutlines(mont, base));
   });
+});
+
+describe('single-line fonts', () => {
+  const stroke = (f: string) => parseSvgFont(readFileSync(`src/assets/strokefonts/${f}.svg`, 'utf8'));
+
+  it('every bundled single-line font reads, with capitals and the usual punctuation', () => {
+    for (const f of ['EMSReadability', 'EMSTech', 'EMSNixish', 'EMSOsmotron', 'EMSFelix', 'EMSAllure', 'HersheySans1', 'HersheySerifMed', 'HersheyScript1', 'HersheyGothEnglish']) {
+      const font = stroke(f);
+      expect(font.cap, f).toBeGreaterThan(300);
+      for (const ch of 'AZaz09&.,!"') expect(font.glyphs.get(ch)?.d, `${f} ${ch}`).toBeTruthy();
+      expect(font.glyphs.get(' ')?.adv, f).toBeGreaterThan(0);
+    }
+  });
+
+  it('letters are centre lines: open strokes, cap height on the baseline, nothing merged', () => {
+    const font = stroke('HersheySans1');
+    const s = textOutlines(font, { ...TEXT_DEFAULTS, text: 'HI', height: 20, at: { x: 10, y: 5 } });
+    // H = two uprights and a bar, I = one upright
+    expect(s).toHaveLength(4);
+    expect(s.every((x) => x.kind === 'poly' && !x.closed)).toBe(true);
+    const b = box(s);
+    expect(b.y0).toBeCloseTo(5, 6);
+    expect(b.y1).toBeCloseTo(25, 6);
+    // aligned by the strokes: left text starts exactly at the anchor
+    expect(b.x0).toBeCloseTo(10, 6);
+  });
+
+  it('a stroke that comes back to its start is closed; layout options work as for outline fonts', () => {
+    const font = stroke('HersheySans1');
+    const o = textOutlines(font, { ...TEXT_DEFAULTS, text: 'O', height: 20, at: { x: 0, y: 0 } });
+    expect(o).toHaveLength(1);
+    expect(o[0].kind === 'poly' && o[0].closed).toBe(true);
+    const base = { ...TEXT_DEFAULTS, text: 'TEST', height: 10, at: { x: 0, y: 0 } };
+    const ctr = box(textOutlines(font, { ...base, align: 'center' }));
+    expect(ctr.x0 + ctr.x1).toBeCloseTo(0, 6);
+    expect(box(textOutlines(font, { ...base, align: 'right' })).x1).toBeCloseTo(0, 6);
+    const R = 50;
+    for (const p of pts(textOutlines(font, { ...base, arc: R, arcSide: 'top' }))) {
+      const r = Math.hypot(p.x, p.y + R);
+      expect(r).toBeGreaterThan(R - 0.01);
+      expect(r).toBeLessThan(R + 10.3); // letters are placed rigidly, so a straight bar reaches a hair past
+    }
+    // characters the font lacks take up space but draw nothing
+    expect(textOutlines(font, { ...base, text: '中' })).toEqual([]);
+  });
+
+  const pts = (ss: Shape[]) => ss.flatMap((s) => (s.kind === 'poly' ? s.pts : []));
 });
