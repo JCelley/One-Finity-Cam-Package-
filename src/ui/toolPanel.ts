@@ -3,6 +3,7 @@ import type { ToolType } from '../core/cutter';
 import { FormatError, parseToolLibrary, safeFileName, toolLibraryToText, TOOLS_EXT } from '../io/formats';
 import { canSaveInPlace, openTextFile, saveTextFile, type FileHandle } from '../io/files';
 import type { Store } from '../io/store';
+import { fmtLen, getUnits, onUnits, parseLen } from './units';
 
 const TYPES: { v: ToolType; label: string }[] = [
   { v: 'flat', label: 'Flat end mill' },
@@ -23,14 +24,7 @@ export async function mountToolPanel(root: HTMLElement, store: Store) {
   let tools: LibraryTool[] = structuredClone(saved?.tools ?? DEFAULT_TOOLS);
   let handle: FileHandle | undefined;
   let dirty = saved?.dirty ?? false;
-  let units: 'mm' | 'in' = 'in';
-  try {
-    if (localStorage.getItem('ofc-units') === 'mm') units = 'mm';
-  } catch {
-    /* storage blocked */
-  }
-  const k = () => (units === 'in' ? 25.4 : 1);
-  const show = (mm: number) => String(+(mm / k()).toFixed(units === 'in' ? 4 : 3));
+  const show = (mm: number) => fmtLen(mm);
 
   let msg = '';
   const keep = async () => {
@@ -43,7 +37,6 @@ export async function mountToolPanel(root: HTMLElement, store: Store) {
     root.innerHTML = `
 <div class="bar">
   <label>Library <input data-f="libname" value="${esc(name)}"></label>
-  <label>Units <select data-f="units"><option value="in"${units === 'in' ? ' selected' : ''}>inch</option><option value="mm"${units === 'mm' ? ' selected' : ''}>mm</option></select></label>
   <button data-a="open">Open…</button>
   <button data-a="save">${handle ? 'Save' : 'Save…'}</button>
   <button data-a="saveas">Save as…</button>
@@ -53,18 +46,18 @@ export async function mountToolPanel(root: HTMLElement, store: Store) {
 ${msg ? `<p class="msg">${esc(msg)}</p>` : ''}
 ${errs.length ? `<p class="err">${errs.map(esc).join('<br>')}</p>` : ''}
 <table>
-<tr><th>T#</th><th>Name</th><th>Type</th><th>Ø (${units})</th><th>Angle °</th><th>Flutes</th><th>Flute length (${units})</th><th>Shank (${units})</th><th></th></tr>
+<tr><th>T#</th><th>Name</th><th>Type</th><th>Ø (${getUnits()})</th><th>Angle °</th><th>Flutes</th><th>Flute length (${getUnits()})</th><th>Shank (${getUnits()})</th><th></th></tr>
 ${tools
   .map(
     (t, i) => `<tr data-i="${i}">
   <td><input data-f="number" type="number" min="1" max="100" step="1" value="${t.number}" class="n"></td>
   <td><input data-f="name" value="${esc(t.name)}"></td>
   <td><select data-f="type">${TYPES.map((o) => `<option value="${o.v}"${o.v === t.cutter.type ? ' selected' : ''}>${o.label}</option>`).join('')}</select></td>
-  <td><input data-f="diameter" type="number" step="any" min="0" value="${show(t.cutter.diameter)}" class="n"></td>
+  <td><input data-f="diameter" value="${show(t.cutter.diameter)}" class="n"></td>
   <td><input data-f="angle" type="number" step="any" min="0" max="179" value="${t.cutter.angle}" class="n"${t.cutter.type === 'vbit' || t.cutter.type === 'taperedBall' ? '' : ' disabled'}></td>
   <td><input data-f="flutes" type="number" step="1" min="1" value="${t.flutes}" class="n"></td>
-  <td><input data-f="fluteLength" type="number" step="any" min="0" value="${show(t.fluteLength)}" class="n"></td>
-  <td><input data-f="shank" type="number" step="any" min="0" value="${show(t.shank)}" class="n"></td>
+  <td><input data-f="fluteLength" value="${show(t.fluteLength)}" class="n"></td>
+  <td><input data-f="shank" value="${show(t.shank)}" class="n"></td>
   <td><button data-a="del" title="Remove tool">✕</button></td>
 </tr>`,
   )
@@ -79,16 +72,6 @@ ${store.persistent ? '' : ' <b>Browser storage is unavailable here, so changes l
     const el = e.target as HTMLInputElement | HTMLSelectElement;
     const f = el.dataset.f;
     if (!f) return;
-    if (f === 'units') {
-      units = el.value as 'mm' | 'in';
-      try {
-        localStorage.setItem('ofc-units', units);
-      } catch {
-        /* storage blocked */
-      }
-      render();
-      return;
-    }
     if (f === 'libname') {
       name = el.value.trim() || 'Tools';
       await keep();
@@ -98,7 +81,8 @@ ${store.persistent ? '' : ' <b>Browser storage is unavailable here, so changes l
     const i = Number(el.closest('tr')?.dataset.i);
     const t = tools[i];
     if (!t) return;
-    const v = Number(el.value);
+    const isLen = f === 'diameter' || f === 'fluteLength' || f === 'shank';
+    const v = isLen ? (parseLen(el.value) ?? NaN) : Number(el.value);
     if (f === 'name') t.name = el.value;
     else if (f === 'type') {
       t.cutter.type = el.value as ToolType;
@@ -109,9 +93,9 @@ ${store.persistent ? '' : ' <b>Browser storage is unavailable here, so changes l
     } else if (f === 'number') t.number = v;
     else if (f === 'angle') t.cutter.angle = v;
     else if (f === 'flutes') t.flutes = v;
-    else if (f === 'diameter') t.cutter.diameter = v * k();
-    else if (f === 'fluteLength') t.fluteLength = v * k();
-    else if (f === 'shank') t.shank = v * k();
+    else if (f === 'diameter') t.cutter.diameter = v;
+    else if (f === 'fluteLength') t.fluteLength = v;
+    else if (f === 'shank') t.shank = v;
     msg = '';
     await keep();
     render();
@@ -162,5 +146,6 @@ ${store.persistent ? '' : ' <b>Browser storage is unavailable here, so changes l
     if (dirty && !store.persistent) e.preventDefault();
   });
 
+  onUnits(() => render());
   render();
 }

@@ -1,15 +1,30 @@
-import { MACHINES } from '../cam/machines';
+import { emptyDoc } from '../cad/doc';
 import { openStore } from '../io/store';
+import { CadEditor } from './cad/editor';
+import { mountJobBar } from './jobBar';
 import { mountToolPanel } from './toolPanel';
 import './style.css';
 
-// Placeholder shell until the CAD canvas (milestone 2) lands: machines and the tool library.
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-<h1>Onefinity CAM</h1>
-<section><h2>Tool library</h2><div id="tools"></div></section>
-<section><h2>Machines</h2><ul>${MACHINES.map((m) => `<li>${m.name}: ${m.travel.x} × ${m.travel.y} × ${m.travel.z} mm</li>`).join('')}</ul></section>
-<p class="hint">Job files (drawing + operations) open and save the same way once the CAD canvas is in.</p>`;
+<header>
+  <h1>Onefinity CAM</h1>
+  <nav><button data-tab="draw" class="on">Drawing</button><button data-tab="tools">Tool library</button></nav>
+  <div id="jobbar" class="jobbar"></div>
+</header>
+<main>
+  <div id="draw" class="tab on"></div>
+  <div id="tools" class="tab"><div class="pad"><h2>Tool library</h2><div id="toolpanel"></div></div></div>
+</main>`;
+
+app.querySelector('nav')!.addEventListener('click', (e) => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
+  if (!t) return;
+  app.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === t));
+  app.querySelectorAll('.tab').forEach((p) => p.classList.toggle('on', p.id === t));
+});
 
 const { store } = await openStore();
-await mountToolPanel(document.querySelector<HTMLDivElement>('#tools')!, store);
+const editor = new CadEditor(document.querySelector<HTMLDivElement>('#draw')!, emptyDoc());
+await mountJobBar(document.querySelector<HTMLDivElement>('#jobbar')!, store, editor);
+await mountToolPanel(document.querySelector<HTMLDivElement>('#toolpanel')!, store);

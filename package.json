@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "clipper2-ts": "2.0.1",
     "three": "^0.187.0"
   },
   "devDependencies": {

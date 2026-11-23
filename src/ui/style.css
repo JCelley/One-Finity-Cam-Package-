@@ -1,25 +1,95 @@
 :root {
   color-scheme: light dark;
-  --bg: #fafafa;
+  --bg: #f6f6f7;
+  --panel: #ffffff;
   --fg: #1a1a1a;
   --muted: #666;
-  --line: #ccc;
+  --line: #d4d4d8;
+  --accent: #2f80ed;
   --err: #b00020;
   --ok: #1d6b2f;
-  font: 14px/1.5 system-ui, sans-serif;
+  --canvas-bg: #ffffff;
+  --canvas-grid: #f0f0f2;
+  --canvas-grid-major: #dcdce0;
+  --canvas-axis-x: #d33;
+  --canvas-axis-y: #2a9d3a;
+  --canvas-stock: #b8864a;
+  --canvas-sel: #f2994a;
+  --canvas-preview: #9b51e0;
+  --canvas-snap: #eb5757;
+  font: 14px/1.4 system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #1b1b1d; --fg: #e8e8e8; --muted: #9a9a9a; --line: #444; --err: #ff6b7f; --ok: #6fd18a; }
+  :root {
+    --bg: #18181b; --panel: #222226; --fg: #e8e8ea; --muted: #9a9aa2; --line: #3a3a40; --accent: #5aa0ff;
+    --err: #ff6b7f; --ok: #6fd18a;
+    --canvas-bg: #1c1c20; --canvas-grid: #26262b; --canvas-grid-major: #34343a; --canvas-stock: #c9a06a;
+  }
 }
-body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); }
-h1 { font-size: 20px; margin: 0 0 12px; }
-h2 { font-size: 16px; margin: 16px 0 8px; }
-.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
-.status { color: var(--muted); }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+#app { height: 100%; display: flex; flex-direction: column; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 16px; margin: 0; }
+nav { display: flex; gap: 4px; }
+nav button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.jobbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; }
+.jobbar .jobname { width: 14em; font-weight: 600; }
+.jobbar .sep { flex: 0 0 8px; }
+.jobbar .status { color: var(--muted); }
+.jobbar .msg, .jobbar .err { flex-basis: 100%; }
+main { flex: 1; min-height: 0; position: relative; }
+.tab { display: none; height: 100%; }
+.tab.on { display: block; }
+.pad { padding: 12px 16px; overflow: auto; height: 100%; }
+h2 { font-size: 16px; margin: 4px 0 8px; }
+h3 { font-size: 13px; margin: 0 0 6px; display: flex; align-items: center; justify-content: space-between; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+input, select, button { font: inherit; color: inherit; }
+input, select { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
 .msg { color: var(--ok); margin: 4px 0; }
 .err { color: var(--err); margin: 4px 0; }
 .hint { color: var(--muted); max-width: 70ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.status { color: var(--muted); }
 table { border-collapse: collapse; width: 100%; max-width: 1100px; display: block; overflow-x: auto; }
 th, td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; white-space: nowrap; }
-input, select, button { font: inherit; }
 input.n { width: 6em; }
+
+/* drawing editor */
+.cad { display: grid !important; grid-template-columns: 112px 1fr 290px; height: 100%; }
+.cad:not(.on) { display: none !important; }
+.cad-tools { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
+.cad-tools button { text-align: left; display: flex; justify-content: space-between; align-items: center; }
+.cad-tools button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.cad-tools kbd { font: 11px ui-monospace, monospace; opacity: 0.6; }
+.cad-tools hr { border: 0; border-top: 1px solid var(--line); width: 100%; margin: 4px 0; }
+.cad-tools label { font-size: 13px; }
+.cad-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.cad-main canvas { flex: 1; min-height: 0; width: 100%; display: block; outline: none; touch-action: none; }
+.cad-status { display: flex; align-items: center; gap: 12px; padding: 5px 8px; border-top: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+.cad-status .coords { font: 12px ui-monospace, monospace; min-width: 15em; color: var(--muted); }
+.cad-status .prompt { font-weight: 600; }
+.cad-status input { flex: 0 1 260px; font: 12px ui-monospace, monospace; }
+.cad-status .msg { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-side { border-left: 1px solid var(--line); background: var(--panel); padding: 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.cad-side h3 button { padding: 0 7px; }
+.layer { display: grid; grid-template-columns: auto 28px 1fr auto auto auto; align-items: center; gap: 4px; margin-bottom: 3px; }
+.layer input[type='color'] { width: 26px; height: 22px; padding: 0; border: none; background: none; }
+.layer input[data-layer='name'] { min-width: 0; }
+.layer label { font-size: 12px; white-space: nowrap; }
+.layer button { padding: 0 6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin: 6px 0; }
+.grid2 label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.grid2 input { min-width: 0; width: 100%; }
+.ops { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.ops .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.ops input { width: 4.5em; }
+@media (max-width: 900px) {
+  .cad { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+  .cad-tools { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
+  .cad-tools hr { display: none; }
+  .cad-side { border-left: 0; border-top: 1px solid var(--line); max-height: 40vh; }
+}

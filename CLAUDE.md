@@ -33,8 +33,23 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
     per file kind, Save overwrites in place); download/upload fallback in other browsers
   - `store.ts`: IndexedDB working copy holding the library, job autosaves, recent jobs and dirty
     flags, with an in-memory fallback. **Files on disk are the master copy; the browser store is a cache.**
-- `src/cad/`: sketch/document model, DXF/SVG, Clipper2 offsets/booleans. Still to write.
-- `src/ui/`: 2D canvas, 3D preview, operation tree. Only a placeholder so far.
+- `src/cad/`: the drawing (pure data and functions, no DOM, so they run in tests and workers)
+  - `geom.ts`: shapes in mm, Y up: `line`, `arc` (always CCW a0→a1), `circle`, `poly`
+    (vertices with DXF-style bulge, open or closed), `dim` (aligned dimension). Also primitives,
+    flattening, boxes, distances, intersections, 3-point arcs.
+  - `doc.ts`: `CadDoc` (layers + entities, stored as `JobFile.cad`), snapshot `History`
+    (undo/redo), `joinShapes` (chains loose lines/arcs into polylines)
+  - `snap.ts`: end/mid/centre/quadrant/intersection/nearest/grid snapping
+  - `ops.ts`: similarity transforms (arcs stay arcs), and Clipper2 (`clipper2-ts`, pinned) offsets
+    and booleans. Booleans/offsets flatten arcs, so their results are straight segments.
+  - `dxf.ts`: DXF import (blocks, splines/ellipses flattened, OCS mirror, $INSUNITS) and R12 export
+  - `svg.ts`: SVG import (own XML tokenizer, transforms, units/viewBox, Y flipped) and export
+- `src/ui/`: `main.ts` (tabs), `jobBar.ts` (job New/Open/Save/Recent, machine, stock, units;
+  autosaves to the store), `toolPanel.ts`, `units.ts` (display units, `parseLen` accepts fractions
+  and unit suffixes), `cad/` (canvas `editor.ts`, `render.ts`, `viewport.ts`)
+
+Not in the CAD yet: constraints, text, fillets/trim/extend, and keeping splines as curves
+(they come in as polylines).
 
 ## MASSO post conventions
 `%`, header comments, `G90 G94 G17 G21|G20 G40 G49 G80`, `G54`–`G59`; per tool: `G53 G0 Z0`, `M5`,
@@ -54,7 +69,7 @@ post change before cutting stock.
 
 ## Milestones
 1. Scaffold, port, MASSO post + golden tests (done)
-2. 2D CAD core: draw/edit/snap/dimension, DXF/SVG import/export, undo
+2. 2D CAD core: draw/edit/snap/dimension, DXF/SVG import/export, undo (done, first pass)
 3. Profile / pocket / drill + 3D toolpath preview + time estimate (port the worker pattern from
    Relief-Generator `src/workers/`)
 4. V-carve and inlay

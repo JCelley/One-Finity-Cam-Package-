@@ -151,7 +151,7 @@ export function newJob(name: string, machineId: string): JobFile {
     wcs: 1,
     safeZ: 5,
     material: 'hardwood',
-    stock: { x: 300, y: 200, z: 19 },
+    stock: { x: 304.8, y: 203.2, z: 19.05 },
     zZero: 'top',
     tools: [],
     ops: [],

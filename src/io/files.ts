@@ -5,12 +5,15 @@
  * open and a download to save.
  */
 
-export type FileKind = 'job' | 'tools' | 'gcode';
+export type FileKind = 'job' | 'tools' | 'gcode' | 'drawing' | 'dxf' | 'svg';
 
 const KINDS: Record<FileKind, { id: string; description: string; accept: Record<string, string[]> }> = {
   job: { id: 'ofc-jobs', description: 'Onefinity CAM job', accept: { 'application/json': ['.json'] } },
   tools: { id: 'ofc-tools', description: 'Onefinity CAM tool library', accept: { 'application/json': ['.json'] } },
   gcode: { id: 'ofc-gcode', description: 'G-code for MASSO', accept: { 'text/plain': ['.nc'] } },
+  drawing: { id: 'ofc-drawings', description: 'Drawing (DXF or SVG)', accept: { 'image/vnd.dxf': ['.dxf'], 'image/svg+xml': ['.svg'] } },
+  dxf: { id: 'ofc-drawings', description: 'DXF drawing', accept: { 'image/vnd.dxf': ['.dxf'] } },
+  svg: { id: 'ofc-drawings', description: 'SVG drawing', accept: { 'image/svg+xml': ['.svg'] } },
 };
 
 // the parts of the File System Access API used here (not in every TS DOM lib)
@@ -100,7 +103,7 @@ export async function saveTextFile(kind: FileKind, suggestedName: string, text: 
       throw e;
     }
   }
-  const url = URL.createObjectURL(new Blob([text], { type: kind === 'gcode' ? 'text/plain' : 'application/json' }));
+  const url = URL.createObjectURL(new Blob([text], { type: Object.keys(k.accept)[0] }));
   const a = document.createElement('a');
   a.href = url;
   a.download = suggestedName;
