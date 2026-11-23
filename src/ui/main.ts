@@ -1,16 +1,15 @@
-import { DEFAULT_TOOLS, describeTool } from '../cam/tools/library';
 import { MACHINES } from '../cam/machines';
+import { openStore } from '../io/store';
+import { mountToolPanel } from './toolPanel';
+import './style.css';
 
-// Placeholder shell until the CAD canvas (milestone 2) lands: shows the machine and tool library.
+// Placeholder shell until the CAD canvas (milestone 2) lands: machines and the tool library.
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
-<style>
-  :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
-  body { margin: 0; padding: 16px; }
-  h1 { font-size: 20px; margin: 0 0 12px; }
-  section { margin-bottom: 16px; }
-</style>
 <h1>Onefinity CAM</h1>
-<section><b>Machines</b><ul>${MACHINES.map((m) => `<li>${m.name}: ${m.travel.x} × ${m.travel.y} × ${m.travel.z} mm</li>`).join('')}</ul></section>
-<section><b>Tool library (MASSO tool numbers)</b><ul>${DEFAULT_TOOLS.map((t) => `<li>${describeTool(t)} — ${t.name}</li>`).join('')}</ul></section>
-<p>CAD canvas and operations are coming next.</p>`;
+<section><h2>Tool library</h2><div id="tools"></div></section>
+<section><h2>Machines</h2><ul>${MACHINES.map((m) => `<li>${m.name}: ${m.travel.x} × ${m.travel.y} × ${m.travel.z} mm</li>`).join('')}</ul></section>
+<p class="hint">Job files (drawing + operations) open and save the same way once the CAD canvas is in.</p>`;
+
+const { store } = await openStore();
+await mountToolPanel(document.querySelector<HTMLDivElement>('#tools')!, store);

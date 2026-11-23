@@ -24,6 +24,15 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
 - `src/cam/tools/library.ts`: tool library; `number` = MASSO tool-table slot (used by `T# M6` and `G43 H#`)
 - `src/cam/machines.ts`: Onefinity models and travel envelopes (nominal, verify on the machine)
 - `src/post/masso.ts`: MASSO post (`postMasso`, `massoFileName`)
+- `src/io/`: storing tool libraries and jobs
+  - `formats.ts`: on-disk JSON formats `*.ofc-tools.json` and `*.ofc-job.json`. Each has a
+    `format` tag and a `version`. To change a format, bump the version and add a `MIGRATE_*` step;
+    newer-version files are refused. Job files embed copies of the tools their ops use, and
+    `toolMismatches` reports differences from the current library when a job is opened.
+  - `files.ts`: Open/Save through the File System Access API in Chrome/Edge (remembers the folder
+    per file kind, Save overwrites in place); download/upload fallback in other browsers
+  - `store.ts`: IndexedDB working copy holding the library, job autosaves, recent jobs and dirty
+    flags, with an in-memory fallback. **Files on disk are the master copy; the browser store is a cache.**
 - `src/cad/`: sketch/document model, DXF/SVG, Clipper2 offsets/booleans. Still to write.
 - `src/ui/`: 2D canvas, 3D preview, operation tree. Only a placeholder so far.
 
