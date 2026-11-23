@@ -15,6 +15,9 @@ export interface TextMeta {
   align: 'left' | 'center' | 'right';
   at: { x: number; y: number };
   angle: number;
+  /** baseline bent round a circle of this radius (0/absent = straight) */
+  arc?: number;
+  arcSide?: 'top' | 'bottom';
 }
 
 /**

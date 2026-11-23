@@ -808,7 +808,7 @@ export class CadEditor {
           // mirrored lettering can't be made from the font again: it becomes plain outlines
           delete t.text;
           unlinked = true;
-        } else t.text = { ...t.text, at: { x: m.a * t.text.at.x + m.c * t.text.at.y + m.e, y: m.b * t.text.at.x + m.d * t.text.at.y + m.f }, angle: t.text.angle + rot, height: t.text.height * k, spacing: t.text.spacing * k };
+        } else t.text = { ...t.text, at: { x: m.a * t.text.at.x + m.c * t.text.at.y + m.e, y: m.b * t.text.at.x + m.d * t.text.at.y + m.f }, angle: t.text.angle + rot, height: t.text.height * k, spacing: t.text.spacing * k, arc: (t.text.arc ?? 0) * k };
       }
       return t;
     });
@@ -905,11 +905,13 @@ export class CadEditor {
     else if (f === 'align') m.align = el.value as TextMeta['align'];
     else if (f === 'angle') m.angle = parseFloat(el.value) || 0;
     else if (f === 'lineSpacing') m.lineSpacing = Math.max(0.5, parseFloat(el.value) || 1.6);
+    else if (f === 'arcSide') m.arcSide = el.value as 'top' | 'bottom';
     else {
       const v = parseLen(el.value);
       if (v === null) return;
       if (f === 'height' && v > 0) m.height = v;
       else if (f === 'spacing') m.spacing = v;
+      else if (f === 'arc' && v >= 0) m.arc = v;
       else if (f === 'x') m.at = { ...m.at, x: v };
       else if (f === 'y') m.at = { ...m.at, y: v };
     }
@@ -933,7 +935,10 @@ export class CadEditor {
     <label title="Baseline start (left), middle (center) or end (right)">X <input data-text="x" value="${L(m.at.x)}"></label>
     <label>Y <input data-text="y" value="${L(m.at.y)}"></label>
     <label title="Distance between lines, × the letter height">Lines <input data-text="lineSpacing" value="${m.lineSpacing}"></label>
+    <label title="Bend the text round a circle of this radius; 0 = straight">Arc radius <input data-text="arc" value="${L(m.arc ?? 0)}"></label>
+    <label title="Over the top of the circle (an arch) or under it (a smile)">Arc <select data-text="arcSide"><option value="top"${m.arcSide !== 'bottom' ? ' selected' : ''}>over the top</option><option value="bottom"${m.arcSide === 'bottom' ? ' selected' : ''}>under the bottom</option></select></label>
   </div>
+  <p class="hint">On an arc, X, Y is the point on the curve the alignment refers to (its middle when centred).</p>
   <div class="row"><button data-act="textok" class="primary">${d.group ? 'Update text' : 'Add text'}</button><button data-act="textcancel">Cancel</button></div>
 </div>`;
   }

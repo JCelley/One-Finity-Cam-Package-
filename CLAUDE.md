@@ -65,7 +65,8 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `svg.ts`: SVG import (own XML tokenizer, transforms, units/viewBox, Y flipped) and export;
     `pathDataShapes` (path `d` → polylines, used for font glyphs)
   - `text.ts`: text → closed outlines with opentype.js (`height` = cap height; kerning, spacing,
-    alignment, rotation, lines), glyphs merged by the non-zero rule (`unionNonZero`)
+    alignment, rotation, lines, `arc` radius over the top or under the bottom of a circle, each
+    letter placed square to the curve), glyphs merged by the non-zero rule (`unionNonZero`)
   - Items made together share `Entity.group` (selected together); text outlines keep their
     `Entity.text` settings so they can be edited; transforms update those settings, a mirror
     turns them into plain outlines
@@ -101,7 +102,7 @@ post change before cutting stock.
 3. Profile / pocket / drill + 3D toolpath preview + time estimate (done, first pass). Not yet:
    lead-in/out, arc fitting (toolpaths are short G1 segments), helical entry, rest machining.
    Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
-4. V-carve and inlay (done, first pass), text tool (done). Not yet: single-line engraving fonts, text on an arc.
+4. V-carve and inlay (done, first pass), text tool (done). Text on an arc (done). Not yet: single-line engraving fonts.
 5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work
