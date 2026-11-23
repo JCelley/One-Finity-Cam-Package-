@@ -39,6 +39,10 @@ export interface Store {
   deleteJob(id: string): Promise<void>;
   /** most recently changed first */
   recentJobs(limit?: number): Promise<JobRecord[]>;
+  /** font files the user loaded (TTF/OTF/WOFF), by name */
+  putFont(name: string, data: ArrayBuffer): Promise<void>;
+  getFont(name: string): Promise<ArrayBuffer | null>;
+  listFonts(): Promise<string[]>;
 }
 
 const req = <T>(r: IDBRequest<T>) => new Promise<T>((res, rej) => ((r.onsuccess = () => res(r.result)), (r.onerror = () => rej(r.error))));
@@ -82,6 +86,16 @@ class IdbStore implements Store {
     const all = (await req(this.tx('jobs', 'readonly').index('updated').getAll())) as JobRecord[];
     return all.reverse().slice(0, limit);
   }
+  async putFont(name: string, data: ArrayBuffer) {
+    await req(this.tx('kv', 'readwrite').put(data, `font:${name}`));
+  }
+  async getFont(name: string) {
+    return ((await req(this.tx('kv', 'readonly').get(`font:${name}`))) as ArrayBuffer | undefined) ?? null;
+  }
+  async listFonts() {
+    const keys = (await req(this.tx('kv', 'readonly').getAllKeys())) as IDBValidKey[];
+    return keys.map(String).filter((k) => k.startsWith('font:')).map((k) => k.slice(5)).sort();
+  }
 }
 
 class MemoryStore implements Store {
@@ -106,6 +120,16 @@ class MemoryStore implements Store {
   }
   async recentJobs(limit = 20) {
     return [...this.jobs.values()].sort((a, b) => b.updated - a.updated).slice(0, limit).map((r) => structuredClone(r));
+  }
+  private fonts = new Map<string, ArrayBuffer>();
+  async putFont(name: string, data: ArrayBuffer) {
+    this.fonts.set(name, data);
+  }
+  async getFont(name: string) {
+    return this.fonts.get(name) ?? null;
+  }
+  async listFonts() {
+    return [...this.fonts.keys()].sort();
   }
 }
 

@@ -4,7 +4,24 @@ import { arcBulge, ends, near, polar, type Pt, type Shape, type Vertex } from '.
  * The drawing: entities on layers. Plain data (JSON-safe) so it goes straight into the job file
  * (`JobFile.cad`) and the undo history is just snapshots.
  */
-export type Entity = Shape & { id: string; layer: string };
+/** the settings text outlines were made from (kept so the text can be edited again) */
+export interface TextMeta {
+  text: string;
+  /** font id (bundled key, or `user:<name>`) */
+  font: string;
+  height: number;
+  spacing: number;
+  lineSpacing: number;
+  align: 'left' | 'center' | 'right';
+  at: { x: number; y: number };
+  angle: number;
+}
+
+/**
+ * A drawing item. Items made together (the outlines of one piece of text) share a `group` and are
+ * selected together; text outlines also carry the `text` they were made from.
+ */
+export type Entity = Shape & { id: string; layer: string; group?: string; text?: TextMeta };
 
 export interface Layer {
   id: string;

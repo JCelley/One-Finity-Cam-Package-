@@ -1,6 +1,7 @@
 import { emptyDoc } from '../cad/doc';
 import { openStore } from '../io/store';
 import { CadEditor } from './cad/editor';
+import { FontCatalog } from './fonts';
 import { mountJobBar } from './jobBar';
 import { mountOpsPanel } from './opsPanel';
 import { mountToolPanel } from './toolPanel';
@@ -21,6 +22,7 @@ app.innerHTML = `
 
 const { store } = await openStore();
 const editor = new CadEditor(document.querySelector<HTMLDivElement>('#draw')!, emptyDoc());
+void editor.setFonts(new FontCatalog(store));
 const job = await mountJobBar(document.querySelector<HTMLDivElement>('#jobbar')!, store, editor);
 await mountToolPanel(document.querySelector<HTMLDivElement>('#toolpanel')!, store);
 

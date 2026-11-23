@@ -5,7 +5,7 @@
  * open and a download to save.
  */
 
-export type FileKind = 'job' | 'tools' | 'gcode' | 'drawing' | 'dxf' | 'svg';
+export type FileKind = 'job' | 'tools' | 'gcode' | 'drawing' | 'dxf' | 'svg' | 'font';
 
 const KINDS: Record<FileKind, { id: string; description: string; accept: Record<string, string[]> }> = {
   job: { id: 'ofc-jobs', description: 'Onefinity CAM job', accept: { 'application/json': ['.json'] } },
@@ -14,6 +14,7 @@ const KINDS: Record<FileKind, { id: string; description: string; accept: Record<
   drawing: { id: 'ofc-drawings', description: 'Drawing (DXF or SVG)', accept: { 'image/vnd.dxf': ['.dxf'], 'image/svg+xml': ['.svg'] } },
   dxf: { id: 'ofc-drawings', description: 'DXF drawing', accept: { 'image/vnd.dxf': ['.dxf'] } },
   svg: { id: 'ofc-drawings', description: 'SVG drawing', accept: { 'image/svg+xml': ['.svg'] } },
+  font: { id: 'ofc-fonts', description: 'Font (TTF, OTF, WOFF)', accept: { 'font/ttf': ['.ttf', '.otf', '.woff'] } },
 };
 
 // the parts of the File System Access API used here (not in every TS DOM lib)
@@ -110,4 +111,31 @@ export async function saveTextFile(kind: FileKind, suggestedName: string, text: 
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return undefined;
+}
+
+/** asks for a file and reads it as bytes (fonts); null if the user cancelled */
+export async function openBinaryFile(kind: FileKind): Promise<{ name: string; data: ArrayBuffer } | null> {
+  const k = KINDS[kind];
+  const w = fsw();
+  if (w.showOpenFilePicker) {
+    try {
+      const [handle] = await w.showOpenFilePicker({ id: k.id, types: [{ description: k.description, accept: k.accept }] });
+      const f = await handle.getFile();
+      return { name: f.name, data: await f.arrayBuffer() };
+    } catch (e) {
+      if (isAbort(e)) return null;
+      throw e;
+    }
+  }
+  return new Promise((res) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = Object.values(k.accept).flat().join(',');
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      res(f ? { name: f.name, data: await f.arrayBuffer() } : null);
+    };
+    input.oncancel = () => res(null);
+    input.click();
+  });
 }

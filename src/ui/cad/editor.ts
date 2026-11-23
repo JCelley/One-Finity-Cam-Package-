@@ -1,16 +1,18 @@
 import { arc3, boxValid, dist, flatten, intersect, near, prims, shapeBox, shapeDistance, sub, type Box, type Prim, type Pt, type Shape } from '../../cad/geom';
-import { DEFAULT_LAYER, entity, History, joinShapes, newId, type CadDoc, type Entity, type Layer } from '../../cad/doc';
+import { DEFAULT_LAYER, entity, History, joinShapes, newId, type CadDoc, type Entity, type Layer, type TextMeta } from '../../cad/doc';
+import { textOutlines, TEXT_DEFAULTS } from '../../cad/text';
+import { DEFAULT_FONT, type FontCatalog } from '../fonts';
 import { findSnap, type Snap } from '../../cad/snap';
 import { booleanShapes, mirrorAcross, offsetShapes, rotateAbout, scaleAbout, transformShape, translate, type BoolOp, type Xform } from '../../cad/ops';
 import { parseDxf, writeDxf } from '../../cad/dxf';
 import { parseSvg, writeSvg } from '../../cad/svg';
-import { openTextFile, saveTextFile } from '../../io/files';
+import { openBinaryFile, openTextFile, saveTextFile } from '../../io/files';
 import { fmtLen, getUnits, onUnits, parseAngle, parseLen } from '../units';
 import { Viewport } from './viewport';
 import { readTheme, render, type Overlay, type Theme } from './render';
 
 
-type Tool = 'select' | 'line' | 'poly' | 'rect' | 'circle' | 'arc' | 'dim';
+type Tool = 'select' | 'line' | 'poly' | 'rect' | 'circle' | 'arc' | 'dim' | 'text';
 
 const TOOLS: { id: Tool; label: string; key: string; tip: string }[] = [
   { id: 'select', label: 'Select', key: 'S', tip: 'Select (S): click, Shift+click to add, drag a box (left→right: inside only, right→left: touching). Drag selected items to move them.' },
@@ -20,6 +22,7 @@ const TOOLS: { id: Tool; label: string; key: string; tip: string }[] = [
   { id: 'circle', label: 'Circle', key: 'C', tip: 'Circle (C): centre, then a point on it. Type a number for the radius.' },
   { id: 'arc', label: 'Arc', key: 'A', tip: 'Arc (A): start, a point on the arc, end.' },
   { id: 'dim', label: 'Dimension', key: 'D', tip: 'Dimension (D): two points, then where the dimension line goes.' },
+  { id: 'text', label: 'Text', key: 'T', tip: 'Text (T): click where the text starts, then type it in the panel on the right.' },
 ];
 
 const PROMPTS: Record<Tool, string[]> = {
@@ -30,6 +33,7 @@ const PROMPTS: Record<Tool, string[]> = {
   circle: ['Circle: centre', 'Circle: radius (point or number)'],
   arc: ['Arc: start point', 'Arc: a point on the arc', 'Arc: end point'],
   dim: ['Dimension: first point', 'Dimension: second point', 'Dimension: place the dimension line'],
+  text: ['Text: click where the text starts', 'Text: type it in the panel on the right, then Add'],
 };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -65,6 +69,13 @@ export class CadEditor {
   private clipboard: Entity[] = [];
   private els: Record<string, HTMLElement> = {};
   stock: { x: number; y: number } | null = null;
+  private fonts: FontCatalog | null = null;
+  private fontList: { id: string; name: string }[] = [];
+  /** text being placed (new) or edited (an existing group) */
+  private textDraft: { meta: TextMeta; group: string | null } | null = null;
+  private textPreview: Shape[] = [];
+  private textTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastFont = DEFAULT_FONT;
   onChange: (doc: CadDoc) => void = () => {};
 
   constructor(private root: HTMLElement, doc: CadDoc) {
@@ -184,6 +195,13 @@ export class CadEditor {
     return [...this.selOrder];
   }
 
+  /** fonts for the text tool */
+  async setFonts(f: FontCatalog) {
+    this.fonts = f;
+    this.fontList = await f.list();
+    this.refreshPanels();
+  }
+
   /** selects these items (e.g. an operation's geometry) */
   selectIds(ids: string[]) {
     const have = new Set(this.doc.entities.map((e) => e.id));
@@ -191,6 +209,9 @@ export class CadEditor {
   }
 
   private select(ids: string[], addTo = false, toggle = false) {
+    const groups = new Set(this.doc.entities.filter((e) => e.group && ids.includes(e.id)).map((e) => e.group));
+    if (groups.size) ids = [...new Set([...ids, ...this.doc.entities.filter((e) => e.group && groups.has(e.group)).map((e) => e.id)])];
+    if (this.textDraft?.group && !ids.some((id) => this.doc.entities.find((e) => e.id === id)?.group === this.textDraft!.group)) this.endText();
     if (!addTo && !toggle) {
       this.sel.clear();
       this.selOrder = [];
@@ -261,6 +282,10 @@ export class CadEditor {
   // ---- drawing tools ------------------------------------------------------------------------------
 
   private setTool(t: Tool) {
+    if (this.textDraft && !this.textDraft.group) {
+      this.endText();
+      this.refreshPanels();
+    }
     this.tool = t;
     this.pts = [];
     this.root.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
@@ -271,6 +296,7 @@ export class CadEditor {
   /** the shapes the current tool would make with the cursor as its next point */
   private previewShapes(): Shape[] {
     const c = this.cursor, p = this.pts;
+    if (this.textDraft) return this.textPreview;
     if (this.drag?.kind === 'move' && this.drag.moved) {
       const d = sub(c, this.drag.from);
       return this.drag.orig.map((e) => transformShape(e, translate(d.x, d.y)));
@@ -344,6 +370,13 @@ export class CadEditor {
           } else this.say('Those points are in a line: no arc');
           this.pts = [];
         } else p.push(q);
+        break;
+      case 'text':
+        this.pts = [q];
+        this.textDraft = { meta: { ...TEXT_DEFAULTS, text: this.textDraft?.meta.text ?? 'Text', font: this.lastFont, at: q, height: getUnits() === 'in' ? 25.4 : 25 }, group: null };
+        this.refreshPanels();
+        this.updateTextPreview();
+        setTimeout(() => this.root.querySelector<HTMLTextAreaElement>('[data-text="text"]')?.select());
         break;
       case 'dim':
         if (p.length === 2) {
@@ -580,8 +613,13 @@ export class CadEditor {
         cv.focus();
       } else this.act(b.dataset.act!, b);
     });
+    this.root.addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement;
+      if (el.dataset.text) this.textField(el);
+    });
     this.root.addEventListener('change', (e) => {
       const el = e.target as HTMLInputElement;
+      if (el.dataset.text) return this.textField(el);
       if (el.dataset.opt === 'snap') this.snapOn = el.checked;
       else if (el.dataset.opt === 'grid') this.gridSnap = el.checked;
       else if (el.dataset.layer !== undefined) this.layerChange(el);
@@ -606,7 +644,11 @@ export class CadEditor {
       this.paste(0);
     } else if (ctrl) return;
     else if (k === 'Escape') {
-      if (this.pts.length) this.pts = [];
+      if (this.textDraft) {
+        this.endText();
+        this.pts = [];
+        this.refreshPanels();
+      } else if (this.pts.length) this.pts = [];
       else this.select([]);
     } else if (k === 'Enter') this.finish();
     else if (k === 'Delete' || k === 'Backspace') this.deleteSelection();
@@ -630,6 +672,31 @@ export class CadEditor {
 
   private act(a: string, el: HTMLElement) {
     switch (a) {
+      case 'textok':
+        return void this.commitText();
+      case 'textcancel':
+        this.endText();
+        this.pts = [];
+        return this.refreshPanels();
+      case 'loadfont':
+        return void this.loadFont();
+      case 'textedit': {
+        const st = this.selectedText();
+        if (!st) return;
+        this.textDraft = { meta: structuredClone(st.meta), group: st.group };
+        this.textPreview = [];
+        this.refreshPanels();
+        return this.updateTextPreview();
+      }
+      case 'textplain': {
+        const st = this.selectedText();
+        if (!st) return;
+        for (const e of this.doc.entities) if (e.group === st.group) {
+          delete e.text;
+          delete e.group;
+        }
+        return this.commit('Text is now plain outlines');
+      }
       case 'undo':
         return this.undo();
       case 'redo':
@@ -731,8 +798,144 @@ export class CadEditor {
   private transformSelection(m: Xform, msg: string) {
     const ids = new Set(this.selected().filter((x) => this.usable(x)).map((x) => x.id));
     if (!ids.size) return this.say('Select something first');
-    this.doc.entities = this.doc.entities.map((x) => (ids.has(x.id) ? transformShape(x, m) : x));
-    this.commit(msg);
+    const det = m.a * m.d - m.b * m.c, k = Math.sqrt(Math.abs(det)), rot = (Math.atan2(m.b, m.a) * 180) / Math.PI;
+    let unlinked = false;
+    this.doc.entities = this.doc.entities.map((x) => {
+      if (!ids.has(x.id)) return x;
+      const t = transformShape(x, m);
+      if (t.text) {
+        if (det < 0) {
+          // mirrored lettering can't be made from the font again: it becomes plain outlines
+          delete t.text;
+          unlinked = true;
+        } else t.text = { ...t.text, at: { x: m.a * t.text.at.x + m.c * t.text.at.y + m.e, y: m.b * t.text.at.x + m.d * t.text.at.y + m.f }, angle: t.text.angle + rot, height: t.text.height * k, spacing: t.text.spacing * k };
+      }
+      return t;
+    });
+    this.commit(unlinked ? `${msg}; mirrored text is now plain outlines` : msg);
+  }
+
+  // ---- text ---------------------------------------------------------------------------------------
+
+  private endText() {
+    this.textDraft = null;
+    this.textPreview = [];
+    clearTimeout(this.textTimer);
+  }
+
+  private async makeText(meta: TextMeta): Promise<Shape[]> {
+    if (!this.fonts) throw new Error('fonts are not loaded yet');
+    return textOutlines(await this.fonts.get(meta.font), meta);
+  }
+
+  private updateTextPreview() {
+    clearTimeout(this.textTimer);
+    const d = this.textDraft;
+    if (!d) return;
+    this.textTimer = setTimeout(async () => {
+      try {
+        const shapes = await this.makeText(d.meta);
+        if (this.textDraft === d) {
+          this.textPreview = shapes;
+          this.requestRender();
+        }
+      } catch (err) {
+        this.say(`Text: ${(err as Error).message}`);
+      }
+    }, 120);
+  }
+
+  /** the text group the selection is exactly made of, if any */
+  private selectedText(): { group: string; meta: TextMeta } | null {
+    const s = this.selected();
+    const g = s[0]?.group;
+    if (!g || !s[0].text || !s.every((e) => e.group === g)) return null;
+    return { group: g, meta: s[0].text };
+  }
+
+  private async commitText() {
+    const d = this.textDraft;
+    if (!d) return;
+    if (!d.meta.text.trim()) return this.say('Type some text first');
+    try {
+      const shapes = await this.makeText(d.meta);
+      if (!shapes.length) return this.say('That text has no outlines in this font');
+      const group = d.group ?? newId();
+      const old = d.group ? this.doc.entities.filter((e) => e.group === d.group) : [];
+      const layer = old[0]?.layer ?? this.layerId;
+      this.doc.entities = this.doc.entities.filter((e) => e.group !== group || !d.group);
+      const es = shapes.map((sh) => ({ ...entity(sh, layer), group, text: structuredClone(d.meta) }) as Entity);
+      this.doc.entities.push(...es);
+      this.lastFont = d.meta.font;
+      this.endText();
+      this.pts = [];
+      if (this.tool === 'text') this.setTool('select');
+      this.select(es.map((e) => e.id));
+      this.commit(`${old.length ? 'Updated' : 'Added'} text: ${es.length} outline${es.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      this.say(`Text: ${(err as Error).message}`);
+    }
+  }
+
+  private async loadFont() {
+    if (!this.fonts) return;
+    try {
+      const f = await openBinaryFile('font');
+      if (!f) return;
+      const id = await this.fonts.add(f.name, f.data);
+      this.fontList = await this.fonts.list();
+      if (this.textDraft) {
+        this.textDraft.meta.font = id;
+        this.updateTextPreview();
+      }
+      this.refreshPanels();
+      this.say(`Loaded ${f.name}; it stays in this browser`);
+    } catch (err) {
+      this.say(`Couldn't load the font: ${(err as Error).message}`);
+    }
+  }
+
+  private textField(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement) {
+    const d = this.textDraft;
+    if (!d) return;
+    const f = el.dataset.text!;
+    const m = d.meta;
+    if (f === 'text') m.text = el.value;
+    else if (f === 'font') m.font = el.value;
+    else if (f === 'align') m.align = el.value as TextMeta['align'];
+    else if (f === 'angle') m.angle = parseFloat(el.value) || 0;
+    else if (f === 'lineSpacing') m.lineSpacing = Math.max(0.5, parseFloat(el.value) || 1.6);
+    else {
+      const v = parseLen(el.value);
+      if (v === null) return;
+      if (f === 'height' && v > 0) m.height = v;
+      else if (f === 'spacing') m.spacing = v;
+      else if (f === 'x') m.at = { ...m.at, x: v };
+      else if (f === 'y') m.at = { ...m.at, y: v };
+    }
+    this.updateTextPreview();
+  }
+
+  private textForm(): string {
+    const d = this.textDraft!;
+    const m = d.meta, L = (mm: number) => fmtLen(mm);
+    const fonts = this.fontList.length ? this.fontList : [{ id: m.font, name: m.font }];
+    return `<div class="textform">
+  <h3>${d.group ? 'Edit text' : 'New text'}</h3>
+  <textarea data-text="text" rows="2" spellcheck="false">${esc(m.text)}</textarea>
+  <label>Font <select data-text="font">${fonts.map((f) => `<option value="${esc(f.id)}"${f.id === m.font ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select></label>
+  <button data-act="loadfont" title="Use a TTF, OTF or WOFF font file from your computer">Load font…</button>
+  <div class="grid2">
+    <label title="Height of the capital letters">Height <input data-text="height" value="${L(m.height)}"></label>
+    <label title="Extra space between letters">Spacing <input data-text="spacing" value="${L(m.spacing)}"></label>
+    <label>Align <select data-text="align">${(['left', 'center', 'right'] as const).map((a) => `<option value="${a}"${a === m.align ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
+    <label title="Degrees, counter-clockwise">Angle° <input data-text="angle" value="${+m.angle.toFixed(2)}"></label>
+    <label title="Baseline start (left), middle (center) or end (right)">X <input data-text="x" value="${L(m.at.x)}"></label>
+    <label>Y <input data-text="y" value="${L(m.at.y)}"></label>
+    <label title="Distance between lines, × the letter height">Lines <input data-text="lineSpacing" value="${m.lineSpacing}"></label>
+  </div>
+  <div class="row"><button data-act="textok" class="primary">${d.group ? 'Update text' : 'Add text'}</button><button data-act="textcancel">Cancel</button></div>
+</div>`;
   }
 
   private deleteSelection() {
@@ -881,6 +1084,13 @@ export class CadEditor {
     // selection
     const s = this.selected();
     let html = '';
+    if (this.textDraft && !this.textDraft.group) {
+      this.els.props.innerHTML = this.textForm();
+      this.requestRender();
+      return;
+    }
+    const st = this.selectedText();
+    if (st) html += this.textDraft?.group === st.group ? this.textForm() : `<div class="row"><button data-act="textedit" title="Change the wording, font or size">Edit text</button><button data-act="textplain" title="Keep the outlines, forget the text (needed before editing points)">To plain outlines</button></div>`;
     if (!s.length) html = `<p class="hint">Nothing selected. ${this.doc.entities.length} item${this.doc.entities.length === 1 ? '' : 's'} in the drawing.</p>`;
     else {
       let b: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };

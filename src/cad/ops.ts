@@ -125,3 +125,11 @@ export function regionLoops(shapes: Shape[], tol = 0.01): Pt[][] {
     .filter((p) => p.length >= 3)
     .map((p) => p.map((q) => ({ x: q.x, y: q.y })));
 }
+
+/**
+ * Closed shapes merged by the non-zero rule (how fonts fill their outlines: overlapping strokes
+ * join, counters stay holes), returned as clean loops: outer CCW, holes CW.
+ */
+export function unionNonZero(shapes: Shape[], tol = 0.01): Shape[] {
+  return toShapes(unionD(toPaths(shapes, tol), [], FillRule.NonZero, PREC));
+}

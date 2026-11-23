@@ -515,3 +515,17 @@ ${groups}
 </svg>
 `;
 }
+
+/**
+ * SVG path data (`d`) → closed/open polylines in drawing coordinates through `m` (curves flattened
+ * to within `tol` mm of the result). Used for font glyphs.
+ */
+export function pathDataShapes(d: string, m: Xform, tol = 0.01): Shape[] {
+  const subs = parsePath(d, tol / scaleOf(m));
+  return subs
+    .filter((s) => s.pts.length >= 2)
+    .map((s) => {
+      const f = flatten({ kind: 'poly', pts: s.pts, closed: s.closed }, tol / scaleOf(m));
+      return { kind: 'poly', pts: f.pts.map((q) => apply(m, q)), closed: s.closed } as Shape;
+    });
+}
