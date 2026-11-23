@@ -74,4 +74,14 @@ post change before cutting stock.
    Relief-Generator `src/workers/`)
 4. V-carve and inlay
 5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
-6. Stock simulation, setup sheet wiring, OpenCascade solids (stretch)
+6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
+   Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work
+   offset. It plays back **the posted G-code file itself** (G0/G1/G2/G3, G53, G54–G59, T# M6,
+   G43, M3/M5, dwell), so it checks what the MASSO will actually run, not the CAM's internal moves.
+   - play / pause / step / scrub, speed control, line-by-line G-code highlight, run-time clock
+   - material removal on the stock (heightfield, reusing `simulateCut` / `tipHeight`), and a
+     finished-part view
+   - warnings: travel and soft-limit overruns, rapids into the stock, cuts deeper than the tool's
+     flute length, plunges with a non-plunging tool, the spindle off while cutting
+   - a schematic machine model, not Onefinity's own CAD files or branding
+7. Setup sheet wiring, OpenCascade solids (stretch)
