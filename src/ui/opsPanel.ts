@@ -5,7 +5,11 @@ import { grooveWidth } from '../cam/ops/engrave';
 import { DEFAULT_TOOLS, describeTool, feedsFor, type LibraryTool } from '../cam/tools/library';
 import type { Material } from '../core/heightfieldCam';
 import type { JobOp } from '../io/formats';
-import { saveTextFile } from '../io/files';
+import { openBinaryFile, saveTextFile } from '../io/files';
+import { encodeTris, decodeTris, MODEL_DEFAULTS, modelSize, placeModel, type Model3D, type UpAxis } from '../cam/model3d';
+import type { Raster3dParams } from '../cam/ops/raster3d';
+import { parseStl } from '../core/stlRead';
+import { scallopHeight } from '../core/heightfieldCam';
 import type { Store } from '../io/store';
 import { newId } from '../cad/doc';
 import type { CamOpResult } from '../workers/cam.worker';
@@ -46,6 +50,11 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       <button data-a="add" data-kind="engrave" title="Follow the selected lines with the tool tip: single-line text, layout lines">Engrave</button>
       <button data-a="add" data-kind="vcarve" title="V-carve inside the selected closed outlines (letters, shapes)">V-carve</button>
       <button data-a="add" data-kind="inlay" title="V-carved inlay: a pocket in one board and a mirrored plug for another">Inlay</button>
+    </div>
+    <div class="row add">3D from an STL model:
+      <button data-a="stl" title="Load a 3D model (binary or ASCII STL) and add a roughing pass for it">Import STL…</button>
+      <button data-a="add3d" data-pass="rough" title="Another roughing pass for the selected 3D operation's model">3D rough</button>
+      <button data-a="add3d" data-pass="finish" title="A finishing pass for the selected 3D operation's model">3D finish</button>
     </div>
     <ol data-el="list" class="oplist"></ol>
     <div data-el="edit" class="opedit"></div>
@@ -106,7 +115,8 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       } else {
         results = r.ops;
         totalSeconds = r.seconds;
-        msg = '';
+        // other messages (an import, a save) stay until the next action
+        if (msg.startsWith("Couldn't work out")) msg = '';
       }
       drawScene();
       renderStats();
@@ -132,7 +142,41 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     const hl = new Set(op ? opParams(op as JobOp & { kind: OpKind }).geometry : []);
     view.setScene(j.stock, j.zZero === 'top' ? 0 : j.stock.z, editor.doc, hl);
     view.setPaths(results.map((r) => r.preview), selected ? results.map((r) => r.opId === selected) : null, showRapids);
+    const zTop = j.zZero === 'top' ? 0 : j.stock.z;
+    const sel = op?.kind === 'raster3d' ? (op.params as Partial<Raster3dParams>).model : undefined;
+    view.setModels(
+      j.models.map((m) => {
+        const p = placedOf(m);
+        return { tris: p.tris, zBottom: zTop - m.top - p.height, highlight: m.id === sel };
+      }),
+    );
   };
+
+  // ---- 3D models ----------------------------------------------------------------------------------
+
+  // decoded triangles per model, and the last placement of each (decoding and placing a big model
+  // on every redraw would be slow)
+  const raw = new Map<string, { src: string; tris: Float32Array }>();
+  const rawOf = (m: Model3D) => {
+    let r = raw.get(m.id);
+    if (!r || r.src !== m.tris) raw.set(m.id, (r = { src: m.tris, tris: decodeTris(m.tris) }));
+    return r.tris;
+  };
+  const placed = new Map<string, { key: string; p: ReturnType<typeof placeModel> }>();
+  const placedOf = (m: Model3D) => {
+    const key = JSON.stringify([m.up, m.turn, m.scale, m.at, m.tris.length]);
+    let c = placed.get(m.id);
+    if (!c || c.key !== key) placed.set(m.id, (c = { key, p: placeModel(m, rawOf(m)) }));
+    return c.p;
+  };
+  const modelOfOp = (o: JobOp | undefined) => (o?.kind === 'raster3d' ? job().models.find((m) => m.id === (o.params as Partial<Raster3dParams>).model) : undefined);
+  /** models no operation uses any more go with their last operation */
+  const pruneModels = () => {
+    const j = job();
+    const used = new Set(j.ops.filter((o) => o.kind === 'raster3d').map((o) => (o.params as Partial<Raster3dParams>).model));
+    j.models = j.models.filter((m) => used.has(m.id));
+  };
+  const UPS: [UpAxis, string][] = [['+z', 'Z up (as drawn)'], ['+y', 'Y up'], ['-z', 'Upside down'], ['-y', 'Y down'], ['+x', 'X up'], ['-x', 'X down']];
 
   // ---- rendering ----------------------------------------------------------------------------------
 
@@ -191,9 +235,9 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
   ${select('tool', 'Tool', String(op.toolNumber), tools)}
   <div class="row3">${field('rpm', 'Speed (rpm)', String(op.rpm), '', 6)}${field('feed', `Feed (${u()}/min)`, F(op.feed))}${field('plunge', `Plunge (${u()}/min)`, F(op.plunge))}</div>
   <div class="row"><button data-a="recommend" title="Speeds and feeds for this tool and material, plus stepdown/stepover">Recommended feeds</button></div>
-  <div class="row geo">${p.geometry.length} drawing item${p.geometry.length === 1 ? '' : 's'}
+  ${kind === 'raster3d' ? '' : `<div class="row geo">${p.geometry.length} drawing item${p.geometry.length === 1 ? '' : 's'}
     <button data-a="usesel" title="Use what is selected in the Drawing tab">Use drawing selection</button>
-    <button data-a="showsel" title="Select these items in the Drawing tab">Show in drawing</button></div>`;
+    <button data-a="showsel" title="Select these items in the Drawing tab">Show in drawing</button></div>`}`;
     const len = (k: string, label: string, title = '') => field(k, label, L(p[k] as number), title);
     if (kind === 'profile') {
       const t = p.tabs as { count: number; width: number; height: number };
@@ -207,6 +251,33 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
   <div class="row3">${select('strategy', 'Pattern', p.strategy as string, [['offset', 'Offset (rings)'], ['raster', 'Raster (zig-zag)']])}${field('angle', 'Angle °', String(p.angle), 'Raster line direction', 4)}${field('stepover', 'Stepover %', String(Math.round((p.stepover as number) * 100)), '% of the tool diameter', 4)}</div>
   <div class="row3">${len('depth', 'Depth')}${len('stepdown', 'Stepdown')}${len('allowance', 'Leave', 'Material left on walls and floor')}</div>
   <div class="row3">${select('climb', 'Direction', String(p.climb), [['true', 'Climb'], ['false', 'Conventional']])}${field('ramp', 'Ramp °', String(p.ramp), '', 4)}${len('top', 'Start depth')}</div>`;
+    } else if (kind === 'raster3d') {
+      const m = modelOfOp(op);
+      const t = toolOf(op.toolNumber);
+      const models: [string, string][] = j.models.map((q) => [q.id, q.name]);
+      h += `
+  <div class="row3">${select('model', 'Model', (p.model as string) || '', models.length ? models : [['', '(none: import an STL)']])}${select('pass', 'Pass', p.pass as string, [['rough', 'Roughing (Z levels)'], ['finish', 'Finishing (raster)']])}</div>`;
+      if (p.pass === 'rough')
+        h += `
+  <div class="row3">${len('stepdown', 'Stepdown', 'Deepest cut per Z level')}${field('step3d', 'Stepover', L(p.stepover as number), 'Distance between the lines')}${len('allowance', 'Leave', 'Material left on the surface for finishing')}</div>
+  <div class="row3">${field('ramp', 'Ramp °', String(p.ramp), '0 = plunge straight down', 4)}</div>`;
+      else {
+        const sc = t ? scallopHeight(t.cutter, p.stepover as number) : 0;
+        h += `
+  <div class="row3">${field('step3d', 'Stepover', L(p.stepover as number), 'Distance between the lines')}${select('dir', 'Lines', p.dir as string, [['x', 'Along X'], ['y', 'Along Y'], ['xy', 'X then Y']])}${field('ramp', 'Ramp °', String(p.ramp), '0 = plunge straight down', 4)}</div>
+  ${t ? `<p class="hint">Ridges between the lines about ${L(sc)} high on flat areas.${t.cutter.type === 'flat' ? ' A flat end mill leaves steps on curves: a ball end mill finishes them smoothly.' : ''}</p>` : ''}`;
+      }
+      if (m) {
+        const sz = modelSize(m, rawOf(m));
+        const ml = (k: string, label: string, v: number, title = '') => `<label title="${esc(title)}">${label}<input data-m="${k}" value="${esc(L(v))}" size="6"></label>`;
+        h += `
+  <fieldset class="model"><legend>Model: ${esc(m.name)} <span class="hint">(shared by its 3D operations)</span></legend>
+  <div class="row3"><label>Up <select data-m="up">${UPS.map(([v, tx]) => `<option value="${v}"${v === m.up ? ' selected' : ''}>${tx}</option>`).join('')}</select></label><label title="Degrees, counter-clockwise">Turn °<input data-m="turn" value="${+m.turn.toFixed(2)}" size="4"></label></div>
+  <div class="row3">${ml('sx', 'Width', sz.x, 'Size in X; the other sizes keep in proportion')}${ml('sy', 'Depth', sz.y, 'Size in Y')}${ml('sz', 'Height', sz.z, 'Size in Z')}</div>
+  <div class="row3">${ml('x', 'X', m.at.x, 'Left edge on the stock')}${ml('y', 'Y', m.at.y, 'Front edge on the stock')}<button data-a="center" title="Centre the model on the stock">Centre</button></div>
+  <div class="row3">${ml('top', 'Top below stock', m.top, 'How far the highest point of the model sits below the top of the stock (0 = flush)')}${ml('margin', 'Margin', m.margin, 'Border round the model cleared down to its bottom')}${ml('res', 'Resolution', m.res, 'Grid spacing: finer is more exact but slower')}</div>
+  </fieldset>`;
+      }
     } else if (kind === 'engrave') {
       const t = toolOf(op.toolNumber);
       const w = t ? grooveWidth(t.cutter, (p.depth as number) - (p.top as number)) : 0;
@@ -273,6 +344,43 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
     return { id: newId(), kind, name: `${OP_LABEL[kind]} ${n}`, toolNumber: tool.number, rpm: rec.rpm, feed: rec.feed, plunge: rec.plunge, enabled: true, params };
   };
 
+  const defaults3d = (pass: 'rough' | 'finish', model: string): JobOp => {
+    const j = job();
+    const want = pass === 'rough' ? ['flat'] : ['ball', 'taperedBall'];
+    const tool = library.find((t) => want.includes(t.cutter.type)) ?? library.find((t) => t.cutter.type === 'flat') ?? library[0];
+    const rec = feedsFor(tool, j.material as Material, pass, machineById(j.machineId).spindle);
+    const params: Raster3dParams = { ...structuredClone(OP_DEFAULTS.raster3d), model, pass, stepdown: rec.stepdown, stepover: rec.stepover };
+    const n = j.ops.filter((o) => o.kind === 'raster3d' && (o.params as Partial<Raster3dParams>).pass === pass).length + 1;
+    return { id: newId(), kind: 'raster3d', name: `3D ${pass} ${n}`, toolNumber: tool.number, rpm: rec.rpm, feed: rec.feed, plunge: rec.plunge, enabled: true, params: params as unknown as Record<string, unknown> };
+  };
+
+  const importStl = async () => {
+    const f = await openBinaryFile('stl');
+    if (!f) return;
+    const j = job();
+    let tris: Float32Array;
+    try {
+      tris = parseStl(f.data);
+    } catch (err) {
+      msg = `Couldn't read ${f.name}: ${(err as Error).message}`;
+      return renderStats();
+    }
+    if (!tris.length) {
+      msg = `${f.name} has no triangles`;
+      return renderStats();
+    }
+    await loadLibrary();
+    const m: Model3D = { id: newId(), name: f.name.replace(/[.]stl$/i, ''), tris: encodeTris(tris), ...structuredClone(MODEL_DEFAULTS) };
+    const sz = modelSize(m, tris);
+    m.at = { x: Math.max(0, (j.stock.x - sz.x) / 2), y: Math.max(0, (j.stock.y - sz.y) / 2) };
+    j.models.push(m);
+    const o = defaults3d('rough', m.id);
+    j.ops.push(o);
+    selected = o.id;
+    msg = `Imported ${m.name}: ${(tris.length / 9).toLocaleString()} triangles, ${L(sz.x)} × ${L(sz.y)} × ${L(sz.z)} (read as mm). Check its size and place below.`;
+    update();
+  };
+
   root.addEventListener('click', async (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-a]');
     const li = (e.target as HTMLElement).closest<HTMLElement>('li[data-id]');
@@ -295,6 +403,26 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       j.ops.push(o);
       selected = o.id;
       update();
+    } else if (a === 'stl') {
+      await importStl();
+    } else if (a === 'add3d') {
+      const m = modelOfOp(op) ?? j.models[j.models.length - 1];
+      if (!m) {
+        msg = 'Import an STL model first.';
+        return renderStats();
+      }
+      await loadLibrary();
+      const o = defaults3d(b.dataset.pass as 'rough' | 'finish', m.id);
+      j.ops.push(o);
+      selected = o.id;
+      msg = '';
+      update();
+    } else if (a === 'center' && op) {
+      const m = modelOfOp(op);
+      if (!m) return;
+      const p = placedOf(m);
+      m.at = { x: (j.stock.x - (p.x1 - p.x0)) / 2, y: (j.stock.y - (p.y1 - p.y0)) / 2 };
+      update();
     } else if (a === 'enable' && i >= 0) {
       j.ops[i].enabled = (b as HTMLInputElement).checked;
       update();
@@ -307,6 +435,7 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       if (!confirm(`Delete "${j.ops[i].name}"?`)) return;
       if (j.ops[i].id === selected) selected = null;
       j.ops.splice(i, 1);
+      pruneModels();
       update();
     } else if (a === 'usesel' && op) {
       const ids = editor.selectedIds();
@@ -325,7 +454,12 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       await loadLibrary();
       const t = toolOf(op.toolNumber);
       if (!t) return;
-      const rec = feedsFor(t, j.material as Material, 'rough', machineById(j.machineId).spindle);
+      const pass = op.kind === 'raster3d' && (op.params as Partial<Raster3dParams>).pass === 'finish' ? 'finish' : 'rough';
+      const rec = feedsFor(t, j.material as Material, pass, machineById(j.machineId).spindle);
+      if (op.kind === 'raster3d') {
+        op.params.stepdown = rec.stepdown;
+        op.params.stepover = rec.stepover;
+      }
       op.rpm = rec.rpm;
       op.feed = rec.feed;
       op.plunge = rec.plunge;
@@ -349,8 +483,41 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       showRapids = (t as HTMLInputElement).checked;
       return drawScene();
     }
-    const k = t.dataset.p;
     const op = j.ops.find((o) => o.id === selected);
+    const mk = t.dataset.m;
+    if (mk && op) {
+      const m = modelOfOp(op);
+      if (!m) return;
+      let ok = true;
+      if (mk === 'up') m.up = t.value as UpAxis;
+      else if (mk === 'turn') {
+        const v = parseFloat(t.value);
+        if (Number.isFinite(v)) m.turn = v;
+        else ok = false;
+      } else {
+        const v = parseLen(t.value);
+        if (v === null) ok = false;
+        else if (mk === 'sx' || mk === 'sy' || mk === 'sz') {
+          const sz = modelSize(m, rawOf(m));
+          const cur = mk === 'sx' ? sz.x : mk === 'sy' ? sz.y : sz.z;
+          if (v > 0 && cur > 0) m.scale *= v / cur;
+          else ok = false;
+        } else if (mk === 'x') m.at = { ...m.at, x: v };
+        else if (mk === 'y') m.at = { ...m.at, y: v };
+        else if (mk === 'top' && v >= 0) m.top = v;
+        else if (mk === 'margin' && v >= 0) m.margin = v;
+        else if (mk === 'res' && v >= 0.05 && v <= 5) m.res = v;
+        else ok = false;
+      }
+      if (!ok) {
+        msg = `"${t.value}" isn't a usable value there`;
+        renderEdit();
+        return renderStats();
+      }
+      msg = '';
+      return update();
+    }
+    const k = t.dataset.p;
     if (!k || !op) return;
     const P = op.params as Record<string, unknown>;
     const lenKeys = ['depth', 'stepdown', 'allowance', 'top', 'peck', 'tabs.width', 'tabs.height', 'maxDepth', 'pocketDepth', 'gap', 'proud', 'margin', 'lift'];
@@ -379,10 +546,23 @@ export function mountOpsPanel(root: HTMLElement, api: JobApi, editor: CadEditor,
       const v = parseFloat(t.value);
       if (v >= 5 && v <= 95) P.clearStepover = v / 100;
       else ok = false;
+    } else if (k === 'step3d') {
+      const v = parseLen(t.value);
+      if (v !== null && v >= 0.02) P.stepover = v;
+      else ok = false;
     } else if (k === 'stepover') {
       const v = parseFloat(t.value);
       if (v >= 5 && v <= 95) P.stepover = v / 100;
       else ok = false;
+    } else if (k === 'pass') {
+      // roughing and finishing want different stepovers and stepdowns
+      P.pass = t.value;
+      const tl = toolOf(op.toolNumber);
+      if (tl) {
+        const rec = feedsFor(tl, j.material as Material, t.value === 'finish' ? 'finish' : 'rough', machineById(j.machineId).spindle);
+        P.stepover = rec.stepover;
+        P.stepdown = rec.stepdown;
+      }
     } else if (k === 'climb') P.climb = t.value === 'true';
     else if (k === 'ramp' || k === 'angle' || k === 'dwell') {
       const v = parseFloat(t.value);

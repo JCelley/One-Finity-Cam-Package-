@@ -18,6 +18,8 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
     (`chipLoad`, `recommend`, `chipRatio`, `stepoverFor`, `scallopHeight`), generic `writeGcode`,
     `previewSegments`. Used for the 3D-from-STL operation.
   - `heightfield.ts` (`MachGrid`), `grid.ts`, `mesh.ts`/`stl.ts` (STL write), `setup.ts` (setup sheet)
+  - `stlRead.ts` (binary/ASCII STL → triangle corners), `rasterize.ts` (`rasterizeTop`: top-down
+    Z-buffer of a mesh onto a `MachGrid`; undercuts are lost)
 - `src/cam/toolpath.ts`: the `Move` list every operation produces and every post reads
   (absolute mm in the work coordinate system, XY arcs with I/J from the start point)
 - `src/cam/ops/`: one module per operation, pure functions from drawing items + params to `Move[]`
@@ -36,7 +38,14 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   - `inlay.ts`: V-carve op, and inlay pocket / plug (mirrored, walls start at pocket depth − glue
     gap, cut down by `proud` more, inside a margin frame). With a clearing tool `buildJob` makes a
     second toolpath (`<id>:clear`, the end mill's own recommended feeds) before the V-bit's.
-  - raster3d: still to write
+  - `raster3d.ts`: 3D roughing (Z levels) / finishing (raster) of a placed model, from
+    heightfieldCam's `roughingPaths` / `finishingRuns`; `pathSetToMoves` (ramps, short hops) turns
+    their part-coordinate paths into work moves. A finishing pass uses the last enabled roughing
+    pass before it on the same model to skip done floor. Grids are cached by placement.
+- `src/cam/model3d.ts`: `Model3D` (STL triangles kept in the job as base64 float32, plus the
+  placement: up axis, turn, scale, front-left corner, top depth below the stock top, margin,
+  grid resolution), `placeModel`, `modelGrid`. Models are added by Import STL (with a roughing
+  op) and dropped when their last 3D op is deleted.
 - `src/cam/build.ts`: `buildJob` (job + drawing + library → moves, warnings, `moveStats` times)
   and `jobGcode` (→ `postMasso`). `opParams` merges saved params over `OP_DEFAULTS`.
 - `src/cam/preview.ts`: moves → line segments for the 3D view
@@ -50,6 +59,7 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
     `format` tag and a `version`. To change a format, bump the version and add a `MIGRATE_*` step;
     newer-version files are refused. Job files embed copies of the tools their ops use, and
     `toolMismatches` reports differences from the current library when a job is opened.
+    Job format 2 added `models`; jobs read back from the browser store go through `upgradeJob`.
   - `files.ts`: Open/Save through the File System Access API in Chrome/Edge (remembers the folder
     per file kind, Save overwrites in place); download/upload fallback in other browsers
   - `store.ts`: IndexedDB working copy holding the library, job autosaves, recent jobs and dirty
@@ -80,7 +90,8 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   and unit suffixes), `fonts.ts` (bundled OFL fonts + user fonts stored in the browser; see
   LICENSES.md), `cad/` (canvas `editor.ts`, `render.ts`, `viewport.ts`), `opsPanel.ts`
   (Toolpaths tab: operations from the drawing selection, settings, recommended feeds, warnings,
-  Save G-code), `preview3d.ts` (three.js stock + drawing + toolpaths, Z up)
+  Save G-code; Import STL and the 3D model placement), `preview3d.ts` (three.js stock + drawing +
+  3D models + toolpaths, Z up)
 
 Not in the CAD yet: constraints, fillets/trim/extend, and keeping splines as curves
 (they come in as polylines).
@@ -109,7 +120,9 @@ post change before cutting stock.
    Run times ignore acceleration and use a 10 m/min rapid (`machines.ts`, to verify).
 4. V-carve and inlay (done, first pass), text tool (done). Text on an arc (done). Single-line
    engraving fonts and the Engrave operation (done).
-5. 3D from STL (needs an STL reader + mesh→heightfield rasteriser; then reuse heightfieldCam)
+5. 3D from STL (done, first pass): import, place, roughing + finishing. Not yet: rest machining
+   with a smaller tool (`detailPaths` exists in heightfieldCam), a boundary other than the model's
+   box, keeping the shank clear on deep walls.
 6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work
    offset. It plays back **the posted G-code file itself** (G0/G1/G2/G3, G53, G54–G59, T# M6,

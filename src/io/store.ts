@@ -1,5 +1,5 @@
 import type { LibraryTool } from '../cam/tools/library';
-import type { JobFile } from './formats';
+import { upgradeJob, type JobFile } from './formats';
 
 /**
  * Browser-side working copy (IndexedDB): the current tool library, an autosave of each open job,
@@ -74,7 +74,9 @@ class IdbStore implements Store {
     await req(this.tx('kv', 'readwrite').put({ name, tools, dirty }, 'library'));
   }
   async getJob(id: string) {
-    return ((await req(this.tx('jobs', 'readonly').get(id))) as JobRecord | undefined) ?? null;
+    const r = ((await req(this.tx('jobs', 'readonly').get(id))) as JobRecord | undefined) ?? null;
+    if (r) r.job = upgradeJob(r.job);
+    return r;
   }
   async putJob(rec: JobRecord) {
     await req(this.tx('jobs', 'readwrite').put(rec));
@@ -110,7 +112,7 @@ class MemoryStore implements Store {
   }
   async getJob(id: string) {
     const r = this.jobs.get(id);
-    return r ? structuredClone(r) : null;
+    return r ? { ...structuredClone(r), job: upgradeJob(structuredClone(r.job)) } : null;
   }
   async putJob(rec: JobRecord) {
     this.jobs.set(rec.id, structuredClone(rec));

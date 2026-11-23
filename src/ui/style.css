@@ -114,6 +114,9 @@ input.n { width: 6em; }
 .opedit label input, .opedit label select { color: var(--fg); font-size: 13px; }
 .opedit .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .opedit .row3 input { width: 100%; min-width: 0; }
+.opedit fieldset.model { border: 1px solid var(--line, #444); border-radius: 6px; padding: 6px 8px 8px; margin: 8px 0 0; display: grid; gap: 6px; }
+.opedit fieldset.model legend { font-weight: 600; padding: 0 4px; }
+.opedit .row3 > button { align-self: end; }
 .opedit .geo { font-size: 13px; }
 .ops-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .ops-viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }

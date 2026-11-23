@@ -1,6 +1,7 @@
 import type { LibraryTool } from '../cam/tools/library';
 import { validateLibrary } from '../cam/tools/library';
 import type { ToolType } from '../core/cutter';
+import { MODEL_DEFAULTS, type Model3D, type UpAxis } from '../cam/model3d';
 
 /**
  * On-disk formats. Plain JSON with a `format` tag and a `version`, so old files keep opening:
@@ -13,7 +14,8 @@ export const TOOLS_VERSION = 1;
 export const TOOLS_EXT = '.ofc-tools.json';
 
 export const JOB_FORMAT = 'onefinity-cam-job';
-export const JOB_VERSION = 1;
+/** 2: `models` (3D models for the raster operations) */
+export const JOB_VERSION = 2;
 export const JOB_EXT = '.ofc-job.json';
 
 export interface ToolLibraryFile {
@@ -54,6 +56,8 @@ export interface JobFile {
   ops: JobOp[];
   /** the drawing (CAD document); its schema is defined by src/cad (milestone 2) */
   cad: unknown;
+  /** 3D models (from STL files) placed on the stock, with their triangles */
+  models: Model3D[];
 }
 
 export class FormatError extends Error {}
@@ -136,7 +140,31 @@ export function parseToolLibrary(text: string): ToolLibraryFile {
 
 // ---- jobs ---------------------------------------------------------------------------------------
 
-const MIGRATE_JOB: Record<number, (v: Record<string, unknown>) => Record<string, unknown>> = {};
+const MIGRATE_JOB: Record<number, (v: Record<string, unknown>) => Record<string, unknown>> = {
+  1: (v) => ({ ...v, version: 2, models: [] }),
+};
+
+const UP_AXES: readonly UpAxis[] = ['+z', '-z', '+y', '-y', '+x', '-x'];
+
+function readModel(v: unknown, i: number): Model3D {
+  const w = `3D model ${i + 1}`;
+  if (!isObj(v)) throw new FormatError(`${w} is not a model`);
+  const at = isObj(v.at) ? v.at : {};
+  const tris = str(v.tris, `${w} triangles`);
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(tris)) throw new FormatError(`${w} triangles are not readable`);
+  return {
+    id: str(v.id, `${w} id`),
+    name: str(v.name ?? 'Model', `${w} name`),
+    tris,
+    up: oneOf(v.up ?? MODEL_DEFAULTS.up, UP_AXES, `${w} up axis`),
+    turn: num(v.turn ?? 0, `${w} turn`),
+    scale: num(v.scale ?? 1, `${w} scale`),
+    at: { x: num(at.x ?? 0, `${w} X`), y: num(at.y ?? 0, `${w} Y`) },
+    top: num(v.top ?? 0, `${w} top`),
+    margin: num(v.margin ?? 0, `${w} margin`),
+    res: num(v.res ?? MODEL_DEFAULTS.res, `${w} resolution`),
+  };
+}
 
 const OP_KINDS: readonly JobOp['kind'][] = ['profile', 'pocket', 'drill', 'engrave', 'vcarve', 'inlay', 'raster3d'];
 
@@ -156,6 +184,7 @@ export function newJob(name: string, machineId: string): JobFile {
     tools: [],
     ops: [],
     cad: null,
+    models: [],
   };
 }
 
@@ -173,6 +202,14 @@ export function jobToText(job: JobFile, library: LibraryTool[], now = new Date()
   }
   const f: JobFile = { ...job, format: JOB_FORMAT, version: JOB_VERSION, saved: now.toISOString(), tools };
   return JSON.stringify(f, null, 2) + '\n';
+}
+
+/** brings a job kept in the browser store (saved by an older version of the app) up to date */
+export function upgradeJob(job: JobFile): JobFile {
+  let v = job as unknown as Record<string, unknown>;
+  for (let ver = Number(v.version) || 1; ver < JOB_VERSION; ver++) v = MIGRATE_JOB[ver](v);
+  if (!Array.isArray(v.models)) v.models = [];
+  return v as unknown as JobFile;
 }
 
 export function parseJob(text: string): JobFile {
@@ -213,6 +250,7 @@ export function parseJob(text: string): JobFile {
     tools,
     ops,
     cad: v.cad ?? null,
+    models: Array.isArray(v.models) ? v.models.map(readModel) : [],
   };
 }
 

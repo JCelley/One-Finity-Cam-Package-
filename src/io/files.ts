@@ -5,7 +5,7 @@
  * open and a download to save.
  */
 
-export type FileKind = 'job' | 'tools' | 'gcode' | 'drawing' | 'dxf' | 'svg' | 'font';
+export type FileKind = 'job' | 'tools' | 'gcode' | 'drawing' | 'dxf' | 'svg' | 'font' | 'stl';
 
 const KINDS: Record<FileKind, { id: string; description: string; accept: Record<string, string[]> }> = {
   job: { id: 'ofc-jobs', description: 'Onefinity CAM job', accept: { 'application/json': ['.json'] } },
@@ -14,6 +14,7 @@ const KINDS: Record<FileKind, { id: string; description: string; accept: Record<
   drawing: { id: 'ofc-drawings', description: 'Drawing (DXF or SVG)', accept: { 'image/vnd.dxf': ['.dxf'], 'image/svg+xml': ['.svg'] } },
   dxf: { id: 'ofc-drawings', description: 'DXF drawing', accept: { 'image/vnd.dxf': ['.dxf'] } },
   svg: { id: 'ofc-drawings', description: 'SVG drawing', accept: { 'image/svg+xml': ['.svg'] } },
+  stl: { id: 'ofc-models', description: '3D model (STL)', accept: { 'model/stl': ['.stl'] } },
   font: { id: 'ofc-fonts', description: 'Font (TTF, OTF, WOFF)', accept: { 'font/ttf': ['.ttf', '.otf', '.woff'] } },
 };
 
@@ -113,7 +114,7 @@ export async function saveTextFile(kind: FileKind, suggestedName: string, text: 
   return undefined;
 }
 
-/** asks for a file and reads it as bytes (fonts); null if the user cancelled */
+/** asks for a file and reads it as bytes (fonts, STL); null if the user cancelled */
 export async function openBinaryFile(kind: FileKind): Promise<{ name: string; data: ArrayBuffer } | null> {
   const k = KINDS[kind];
   const w = fsw();

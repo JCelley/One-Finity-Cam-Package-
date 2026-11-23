@@ -10,6 +10,7 @@ import { profileOp, PROFILE_DEFAULTS, type ProfileParams } from './ops/profile';
 import { pocketOp, POCKET_DEFAULTS, type PocketParams } from './ops/pocket';
 import { drillOp, DRILL_DEFAULTS, type DrillParams } from './ops/drill';
 import { engraveOp, ENGRAVE_DEFAULTS, type EngraveParams } from './ops/engrave';
+import { raster3dOp, RASTER3D_DEFAULTS, type Raster3dParams, type RoughBefore } from './ops/raster3d';
 import { inlayOp, INLAY_DEFAULTS, vbitOf, vcarveOp, VCARVE_DEFAULTS, type CarveResult, type InlayParams, type VcarveParams } from './ops/inlay';
 import type { Entity } from '../cad/doc';
 
@@ -18,9 +19,9 @@ import type { Entity } from '../cad/doc';
  * estimates, and into a MASSO G-code file. Pure: runs in the worker and in tests.
  */
 
-export type OpKind = 'profile' | 'pocket' | 'drill' | 'engrave' | 'vcarve' | 'inlay';
-export const OP_DEFAULTS = { profile: PROFILE_DEFAULTS, pocket: POCKET_DEFAULTS, drill: DRILL_DEFAULTS, engrave: ENGRAVE_DEFAULTS, vcarve: VCARVE_DEFAULTS, inlay: INLAY_DEFAULTS };
-export const OP_LABEL: Record<OpKind, string> = { profile: 'Profile', pocket: 'Pocket', drill: 'Drill', engrave: 'Engrave', vcarve: 'V-carve', inlay: 'Inlay' };
+export type OpKind = 'profile' | 'pocket' | 'drill' | 'engrave' | 'vcarve' | 'inlay' | 'raster3d';
+export const OP_DEFAULTS = { profile: PROFILE_DEFAULTS, pocket: POCKET_DEFAULTS, drill: DRILL_DEFAULTS, engrave: ENGRAVE_DEFAULTS, vcarve: VCARVE_DEFAULTS, inlay: INLAY_DEFAULTS, raster3d: RASTER3D_DEFAULTS };
+export const OP_LABEL: Record<OpKind, string> = { profile: 'Profile', pocket: 'Pocket', drill: 'Drill', engrave: 'Engrave', vcarve: 'V-carve', inlay: 'Inlay', raster3d: '3D' };
 
 /** the op's settings merged over the defaults (old files keep working when settings are added) */
 export function opParams<K extends OpKind>(op: JobOp & { kind: K }): (typeof OP_DEFAULTS)[K] & { geometry: string[] } {
@@ -126,7 +127,30 @@ export function buildJob(job: JobFile, doc: CadDoc, library: LibraryTool[], fmt:
       if (items.length < p.geometry.length) warnings.push(`${p.geometry.length - items.length} of its drawing items no longer exist`);
       const dia = tool.cutter.diameter;
       let depth: number;
-      if (kind === 'vcarve' || kind === 'inlay') {
+      if (kind === 'raster3d') {
+        const rp = p as unknown as Raster3dParams;
+        const model = job.models.find((m) => m.id === rp.model);
+        if (!model) {
+          warnings.push('Choose a 3D model for this operation (import an STL first)');
+          depth = 0;
+        } else {
+          // a finishing pass knows what the roughing before it on the same model left
+          let rough: RoughBefore | undefined;
+          if (rp.pass === 'finish') {
+            for (const q of job.ops.slice(0, job.ops.indexOf(op))) {
+              const qp = q.params as Partial<Raster3dParams>;
+              const qt = tools.get(q.toolNumber);
+              if (q.enabled && q.kind === 'raster3d' && qp.pass === 'rough' && qp.model === model.id && qt)
+                rough = { tool: qt.cutter, allowance: qp.allowance ?? RASTER3D_DEFAULTS.allowance, stepover: qp.stepover ?? RASTER3D_DEFAULTS.stepover };
+            }
+          }
+          const r = raster3dOp(model, tool.cutter, rp, ctx, rough);
+          moves = r.moves;
+          warnings.push(...r.warnings);
+          depth = r.depth;
+          if (r.bottom > job.stock.z + 1e-6) warnings.push(`The model's bottom is ${fmt(r.bottom)} below the stock top, deeper than the ${fmt(job.stock.z)} stock`);
+        }
+      } else if (kind === 'vcarve' || kind === 'inlay') {
         if (tool.cutter.type !== 'vbit') {
           warnings.push('V-carving needs a V-bit: choose one as the tool');
           depth = 0;

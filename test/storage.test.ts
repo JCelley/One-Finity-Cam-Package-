@@ -73,7 +73,19 @@ describe('job file', () => {
     expect(() => parseJob(JSON.stringify({ ...v, wcs: 7 }))).toThrow(/work offset/);
     expect(() => parseJob(JSON.stringify({ ...v, units: 'cm' }))).toThrow(/units/);
     expect(() => parseJob(JSON.stringify({ ...v, ops: [{ ...v.ops[0], toolNumber: 9 }] }))).toThrow(/does not include/);
-    expect(() => parseJob(JSON.stringify({ ...v, version: 2 }))).toThrow(/newer version/);
+    expect(() => parseJob(JSON.stringify({ ...v, version: 3 }))).toThrow(/newer version/);
+    expect(() => parseJob(JSON.stringify({ ...v, models: [{ id: 'm', tris: 'not base64!' }] }))).toThrow(/3D model 1/);
+  });
+
+  it('version 1 jobs (before 3D models) open with no models; models round-trip', () => {
+    const v = JSON.parse(jobToText(sampleJob(), DEFAULT_TOOLS, NOW));
+    delete v.models;
+    const old = parseJob(JSON.stringify({ ...v, version: 1 }));
+    expect(old.version).toBe(2);
+    expect(old.models).toEqual([]);
+    const j = sampleJob();
+    j.models = [{ id: 'm1', name: 'bowl', tris: 'AACAPwAAAEA=', up: '+y', turn: 90, scale: 25.4, at: { x: 10, y: 20 }, top: 1, margin: 3, res: 0.3 }];
+    expect(parseJob(jobToText(j, DEFAULT_TOOLS, NOW)).models).toEqual(j.models);
   });
 
   it('file names', () => {
@@ -99,6 +111,18 @@ describe('browser store', () => {
     expect((await again.getJob('old'))!.job.ops).toHaveLength(2);
     await again.deleteJob('old');
     expect(await again.getJob('old')).toBeNull();
+  });
+
+  it('jobs autosaved by an older version come back up to date (3D models list added)', async () => {
+    for (const idb of [new IDBFactory(), null]) {
+      const { store } = await openStore(idb);
+      const old = { ...sampleJob(), version: 1 } as Record<string, unknown>;
+      delete old.models;
+      await store.putJob({ id: 'v1', job: old as unknown as JobRecord['job'], dirty: false, updated: 1 });
+      const r = (await store.getJob('v1'))!;
+      expect(r.job.version).toBe(2);
+      expect(r.job.models).toEqual([]);
+    }
   });
 
   it('falls back to memory when IndexedDB is not there', async () => {

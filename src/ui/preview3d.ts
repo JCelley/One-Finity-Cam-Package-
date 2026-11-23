@@ -16,6 +16,7 @@ export class Preview3D {
   private stockGroup = new THREE.Group();
   private drawGroup = new THREE.Group();
   private pathGroup = new THREE.Group();
+  private modelGroup = new THREE.Group();
   private queued = false;
   private fitted = false;
   private box = new THREE.Box3();
@@ -31,7 +32,7 @@ export class Preview3D {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.75));
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(0.4, -0.6, 1);
-    this.scene.add(sun, this.stockGroup, this.drawGroup, this.pathGroup);
+    this.scene.add(sun, this.stockGroup, this.drawGroup, this.modelGroup, this.pathGroup);
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
   }
@@ -95,6 +96,24 @@ export class Preview3D {
     }
     this.box.set(new THREE.Vector3(0, 0, zTop - stock.z), new THREE.Vector3(stock.x, stock.y, zTop));
     if (!this.fitted) this.fit();
+    this.request();
+  }
+
+  /**
+   * 3D models: triangle corners in work X/Y with z = height above the model's bottom, which sits
+   * at work Z `zBottom`. The highlighted one is drawn more solid.
+   */
+  setModels(models: { tris: Float32Array; zBottom: number; highlight: boolean }[]) {
+    this.clear(this.modelGroup);
+    for (const m of models) {
+      const pos = new Float32Array(m.tris);
+      for (let i = 2; i < pos.length; i += 3) pos[i] += m.zBottom;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.computeVertexNormals();
+      const mat = new THREE.MeshLambertMaterial({ color: 0x9aa7b8, transparent: true, opacity: m.highlight ? 0.7 : 0.35, side: THREE.DoubleSide, depthWrite: false });
+      this.modelGroup.add(new THREE.Mesh(g, mat));
+    }
     this.request();
   }
 
