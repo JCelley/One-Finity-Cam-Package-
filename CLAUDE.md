@@ -54,7 +54,8 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
 - `src/cam/preview.ts`: moves → line segments for the 3D view
 - `src/workers/cam.worker.ts` + `src/ui/camClient.ts`: toolpaths are computed off the main thread;
   only the newest request's reply is used
-- `src/cam/tools/library.ts`: tool library; `number` = MASSO tool-table slot (used by `T# M6` and `G43 H#`)
+- `src/cam/tools/library.ts`: tool library; `number` = MASSO tool-table slot (used by `T# M6` and `G43 H#`);
+  optional `plunge: false` for a tool that isn't centre-cutting (the simulator warns)
 - `src/cam/machines.ts`: Onefinity models and travel envelopes (nominal, verify on the machine)
 - `src/post/masso.ts`: MASSO post (`postMasso`, `massoFileName`)
 - `src/io/`: storing tool libraries and jobs
@@ -94,7 +95,18 @@ Vite + TypeScript + three.js + vitest, deployed to GitHub Pages by `.github/work
   LICENSES.md), `cad/` (canvas `editor.ts`, `render.ts`, `viewport.ts`), `opsPanel.ts`
   (Toolpaths tab: operations from the drawing selection, settings, recommended feeds, warnings,
   Save G-code; Import STL and the 3D model placement), `preview3d.ts` (three.js stock + drawing +
-  3D models + toolpaths, Z up)
+  3D models + toolpaths, Z up), `simPanel.ts` + `sim3d.ts` (Simulator tab)
+- `src/sim/`: the machine simulator, run on the posted G-code text (pure, no DOM)
+  - `gcode.ts`: `interpret` → timed `Seg`s of the tool tip in machine coordinates, plus issues for
+    what it can't simulate; `segPoint`, `segAt`. Machine coords: X 0 left, Y 0 front, Z 0 top of
+    travel, Z values are of the spindle nose; the tip is `len` below it. With `G43 H#` (or
+    `tloOnM6`) a work Z is the tip; without, the nose. `G53` is nose coordinates, no tool length.
+  - `simulate.ts`: `StockGrid` (heightfield of machine Z), `Cutting` (stamps the tool shape along
+    the moves, forward only; `reset` to go back), `analyse` (one full run: warnings for travel,
+    rapids through stock, deeper than the flutes, plunging a non-plunging tool, spindle off, no
+    tool, >1 mm into the spoilboard; one per kind with a count)
+  - `setup.ts`: `placeJob` (spoilboard 10 mm below the lowest nose position, stock on it, work
+    offset at its front-left corner), `simTool` (stick-out = flute length + 15 mm)
 
 Not in the CAD yet: constraints, fillets/trim/extend, and keeping splines as curves
 (they come in as polylines).
@@ -111,6 +123,8 @@ Items still to confirm against the MASSO docs or the real machine:
 - whether `G43 H#` is needed, or MASSO applies the tool length on `M6` by itself
 - the USB file-name limits
 - the Elite model travels
+- for the simulator: where MASSO homes (it starts at back-left), the real tool stick-outs and
+  spoilboard height, and whether `G53` moves ignore the tool length offset
 
 Every new machine-facing behaviour needs a golden-file test. The user air-cuts the first file from any
 post change before cutting stock.
@@ -125,7 +139,9 @@ post change before cutting stock.
    engraving fonts and the Engrave operation (done).
 5. 3D from STL (done, first pass): import, place, roughing, finishing, rest machining with a
    smaller tool. Not yet: a boundary other than the model's box, keeping the shank clear on deep walls.
-6. Machine simulator: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
+6. Machine simulator (done, first pass). Not yet: acceleration in the run time, holders/collet
+   collisions, a stock other than the job's for opened files, simulating in a worker.
+   The plan was: a 3D (three.js) Onefinity sized from `machines.ts` (bed, rails, X gantry,
    Z carriage, router/spindle, the job's tool from the library), with the stock placed at the work
    offset. It plays back **the posted G-code file itself** (G0/G1/G2/G3, G53, G54–G59, T# M6,
    G43, M3/M5, dwell), so it checks what the MASSO will actually run, not the CAM's internal moves.

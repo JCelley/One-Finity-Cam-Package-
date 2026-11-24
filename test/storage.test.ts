@@ -43,6 +43,15 @@ describe('tool library file', () => {
     const bad = JSON.stringify({ format: 'onefinity-cam-tools', version: 1, tools: [{ ...DEFAULT_TOOLS[0], cutter: { type: 'laser', diameter: 1, angle: 0 } }] });
     expect(() => parseToolLibrary(bad)).toThrow(/tool 1 type/);
   });
+
+  it("keeps a tool that can't plunge; older files (no flag) mean it can", () => {
+    const tools = DEFAULT_TOOLS.map((t) => (t.number === 7 ? { ...t, plunge: false } : t));
+    const f = parseToolLibrary(toolLibraryToText('Shop tools', tools, NOW));
+    expect(f.tools.find((t) => t.number === 7)!.plunge).toBe(false);
+    expect(f.tools.find((t) => t.number === 1)!.plunge).toBeUndefined();
+    const bad = JSON.stringify({ format: 'onefinity-cam-tools', version: 1, tools: [{ ...DEFAULT_TOOLS[0], plunge: 'no' }] });
+    expect(() => parseToolLibrary(bad)).toThrow(/plunge must be true or false/);
+  });
 });
 
 describe('job file', () => {

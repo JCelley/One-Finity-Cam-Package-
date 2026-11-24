@@ -14,6 +14,8 @@ export interface LibraryTool {
   /** cutting length (mm): deepest single cut it can take */
   fluteLength: number;
   shank: number;
+  /** false: not centre-cutting, it can't plunge (the simulator warns); absent = it can */
+  plunge?: boolean;
   notes?: string;
 }
 

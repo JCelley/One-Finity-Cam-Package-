@@ -46,7 +46,7 @@ export async function mountToolPanel(root: HTMLElement, store: Store) {
 ${msg ? `<p class="msg">${esc(msg)}</p>` : ''}
 ${errs.length ? `<p class="err">${errs.map(esc).join('<br>')}</p>` : ''}
 <table>
-<tr><th>T#</th><th>Name</th><th>Type</th><th>Ø (${getUnits()})</th><th>Angle °</th><th>Flutes</th><th>Flute length (${getUnits()})</th><th>Shank (${getUnits()})</th><th></th></tr>
+<tr><th>T#</th><th>Name</th><th>Type</th><th>Ø (${getUnits()})</th><th>Angle °</th><th>Flutes</th><th>Flute length (${getUnits()})</th><th>Shank (${getUnits()})</th><th title="Centre-cutting: it can go straight down into the material">Plunges</th><th></th></tr>
 ${tools
   .map(
     (t, i) => `<tr data-i="${i}">
@@ -58,6 +58,7 @@ ${tools
   <td><input data-f="flutes" type="number" step="1" min="1" value="${t.flutes}" class="n"></td>
   <td><input data-f="fluteLength" value="${show(t.fluteLength)}" class="n"></td>
   <td><input data-f="shank" value="${show(t.shank)}" class="n"></td>
+  <td><input data-f="plunge" type="checkbox"${t.plunge === false ? '' : ' checked'} title="Untick for a tool that isn't centre-cutting (the simulator warns when it plunges)"></td>
   <td><button data-a="del" title="Remove tool">✕</button></td>
 </tr>`,
   )
@@ -83,6 +84,12 @@ ${store.persistent ? '' : ' <b>Browser storage is unavailable here, so changes l
     if (!t) return;
     const isLen = f === 'diameter' || f === 'fluteLength' || f === 'shank';
     const v = isLen ? (parseLen(el.value) ?? NaN) : Number(el.value);
+    if (f === 'plunge') {
+      if ((el as HTMLInputElement).checked) delete t.plunge;
+      else t.plunge = false;
+      await keep();
+      return render();
+    }
     if (f === 'name') t.name = el.value;
     else if (f === 'type') {
       t.cutter.type = el.value as ToolType;

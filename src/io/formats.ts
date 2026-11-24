@@ -89,6 +89,10 @@ function readTool(v: unknown, i: number): LibraryTool {
     fluteLength: num(v.fluteLength, `${w} flute length`),
     shank: num(v.shank, `${w} shank`),
   };
+  if (v.plunge !== undefined) {
+    if (typeof v.plunge !== 'boolean') throw new FormatError(`${w} plunge must be true or false`);
+    if (!v.plunge) t.plunge = false;
+  }
   if (v.notes !== undefined) t.notes = str(v.notes, `${w} notes`);
   return t;
 }

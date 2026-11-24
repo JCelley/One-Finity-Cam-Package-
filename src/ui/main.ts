@@ -4,6 +4,7 @@ import { CadEditor } from './cad/editor';
 import { FontCatalog } from './fonts';
 import { mountJobBar } from './jobBar';
 import { mountOpsPanel } from './opsPanel';
+import { mountSimPanel } from './simPanel';
 import { mountToolPanel } from './toolPanel';
 import './style.css';
 
@@ -11,12 +12,13 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
 <header>
   <h1>Onefinity CAM</h1>
-  <nav><button data-tab="draw" class="on">Drawing</button><button data-tab="paths">Toolpaths</button><button data-tab="tools">Tool library</button></nav>
+  <nav><button data-tab="draw" class="on">Drawing</button><button data-tab="paths">Toolpaths</button><button data-tab="sim">Simulator</button><button data-tab="tools">Tool library</button></nav>
   <div id="jobbar" class="jobbar"></div>
 </header>
 <main>
   <div id="draw" class="tab on"></div>
   <div id="paths" class="tab"></div>
+  <div id="sim" class="tab"></div>
   <div id="tools" class="tab"><div class="pad"><h2>Tool library</h2><div id="toolpanel"></div></div></div>
 </main>`;
 
@@ -30,8 +32,10 @@ const showTab = (t: string) => {
   app.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === t));
   app.querySelectorAll('.tab').forEach((p) => p.classList.toggle('on', p.id === t));
   if (t === 'paths') ops.shown();
+  if (t === 'sim') sim.shown();
 };
 const ops = mountOpsPanel(document.querySelector<HTMLDivElement>('#paths')!, job, editor, store, () => showTab('draw'));
+const sim = mountSimPanel(document.querySelector<HTMLDivElement>('#sim')!, job, editor, store);
 
 app.querySelector('nav')!.addEventListener('click', (e) => {
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
